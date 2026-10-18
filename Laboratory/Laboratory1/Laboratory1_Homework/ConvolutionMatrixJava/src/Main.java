@@ -3,17 +3,22 @@ import java.util.StringTokenizer;
 
 public class Main {
 
+    @FunctionalInterface
+    interface TaskRunner {
+        void run() throws InterruptedException;
+    }
+
+    // Resolves file path from either the current directory or the parent directory
     private static File resolveFile(String filename) {
         File f = new File(filename);
         if (f.exists()) return f;
         File parent = new File("..", filename);
-        if (parent.exists()) return parent;
-        return f;
+        return parent.exists() ? parent : f;
     }
 
+    // Reads a 2D matrix from a file (supports both "n m" and square "k" headers)
     public static int[][] readMatrix(String filename) throws IOException {
-        File file = resolveFile(filename);
-        try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+        try (BufferedReader br = new BufferedReader(new FileReader(resolveFile(filename)))) {
             String line = br.readLine();
             if (line == null) return new int[0][0];
 
@@ -34,23 +39,20 @@ public class Main {
         }
     }
 
+    // Writes the 2D matrix directly to an output file
     public static void writeMatrix(String filename, int[][] matrix) throws IOException {
-        int rows = matrix.length;
-        int cols = matrix[0].length;
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(filename))) {
-            bw.write(rows + " " + cols);
-            bw.newLine();
-            for (int i = 0; i < rows; i++) {
-                StringBuilder sb = new StringBuilder();
-                for (int j = 0; j < cols; j++) {
-                    sb.append(matrix[i][j]).append(" ");
+            bw.write(matrix.length + " " + matrix[0].length + "\n");
+            for (int[] row : matrix) {
+                for (int j = 0; j < row.length; j++) {
+                    bw.write(row[j] + (j + 1 < row.length ? " " : ""));
                 }
-                bw.write(sb.toString().trim());
                 bw.newLine();
             }
         }
     }
 
+    // Verifies that two matrices have identical dimensions and values
     public static boolean areEqual(int[][] a, int[][] b) {
         if (a.length != b.length || a[0].length != b[0].length) return false;
         for (int i = 0; i < a.length; i++) {
@@ -61,11 +63,12 @@ public class Main {
         return true;
     }
 
-    public static int computeConvolution(int[][] F, int[][] C, int i, int j, int n, int m, int k, int radius) {
+    // Computes convolution for a single cell (i, j) using clamped virtual borders
+    public static int computeConvolution(int[][] F, int[][] C, int i, int j, int n, int m, int radius) {
         int sum = 0;
         for (int a = -radius; a <= radius; a++) {
+            int r = Math.clamp(i + a, 0, n - 1);
             for (int b = -radius; b <= radius; b++) {
-                int r = Math.clamp(i + a, 0, n - 1);
                 int c = Math.clamp(j + b, 0, m - 1);
                 sum += F[r][c] * C[a + radius][b + radius];
             }
@@ -73,111 +76,92 @@ public class Main {
         return sum;
     }
 
+    // Computes convolution over the rectangular submatrix [r0, r1) x [c0, c1)
+    private static void computeRegion(int[][] F, int[][] C, int[][] V, int r0, int r1, int c0, int c1, int n, int m, int radius) {
+        for (int i = r0; i < r1; i++) {
+            for (int j = c0; j < c1; j++) {
+                V[i][j] = computeConvolution(F, C, i, j, n, m, radius);
+            }
+        }
+    }
+
+    // Returns balanced [start, end) bounds for partition 'id' out of 'parts'
+    private static int[] getChunk(int id, int total, int parts) {
+        int base = total / parts, rem = total % parts;
+        int start = id * base + Math.min(id, rem);
+        int end = start + base + (id < rem ? 1 : 0);
+        return new int[]{start, end};
+    }
+
+    // Starts all threads explicitly and waits for all of them to finish
     private static void startAndJoin(Thread[] threads) throws InterruptedException {
         for (Thread t : threads) t.start();
         for (Thread t : threads) t.join();
     }
 
+    // 1. Sequential convolution
     public static void sequential(int[][] F, int[][] C, int[][] V, int n, int m, int k) {
-        int radius = k / 2;
-        for (int i = 0; i < n; i++) {
-            for (int j = 0; j < m; j++) {
-                V[i][j] = computeConvolution(F, C, i, j, n, m, k, radius);
-            }
-        }
+        computeRegion(F, C, V, 0, n, 0, m, n, m, k / 2);
     }
 
+    // 2. Horizontal decomposition (rows distributed across p threads)
     public static void horizontal(int[][] F, int[][] C, int[][] V, int n, int m, int k, int p) throws InterruptedException {
-        int radius = k / 2;
         Thread[] threads = new Thread[p];
-        int base = n / p, rem = n % p, startRow = 0;
-
         for (int id = 0; id < p; id++) {
-            int r0 = startRow;
-            int r1 = startRow + base + (id < rem ? 1 : 0);
-            threads[id] = new Thread(() -> {
-                for (int i = r0; i < r1; i++) {
-                    for (int j = 0; j < m; j++) {
-                        V[i][j] = computeConvolution(F, C, i, j, n, m, k, radius);
-                    }
-                }
-            });
-            startRow = r1;
+            int[] rows = getChunk(id, n, p);
+            threads[id] = new Thread(() -> computeRegion(F, C, V, rows[0], rows[1], 0, m, n, m, k / 2));
         }
         startAndJoin(threads);
     }
 
+    // 3. Vertical decomposition (columns distributed across p threads)
     public static void vertical(int[][] F, int[][] C, int[][] V, int n, int m, int k, int p) throws InterruptedException {
-        int radius = k / 2;
         Thread[] threads = new Thread[p];
-        int base = m / p, rem = m % p, startCol = 0;
-
         for (int id = 0; id < p; id++) {
-            int c0 = startCol;
-            int c1 = startCol + base + (id < rem ? 1 : 0);
-            threads[id] = new Thread(() -> {
-                for (int i = 0; i < n; i++) {
-                    for (int j = c0; j < c1; j++) {
-                        V[i][j] = computeConvolution(F, C, i, j, n, m, k, radius);
-                    }
-                }
-            });
-            startCol = c1;
+            int[] cols = getChunk(id, m, p);
+            threads[id] = new Thread(() -> computeRegion(F, C, V, 0, n, cols[0], cols[1], n, m, k / 2));
         }
         startAndJoin(threads);
     }
 
+    // 4. Block decomposition (2D submatrix grid pr x pc distributed across p threads)
     public static void block(int[][] F, int[][] C, int[][] V, int n, int m, int k, int p) throws InterruptedException {
-        int radius = k / 2;
-        int pr = 1, pc = p;
-        for (int r = (int) Math.sqrt(p); r >= 1; r--) {
-            if (p % r == 0) {
-                pr = r;
-                pc = p / r;
-                break;
-            }
-        }
+        int pr = (int) Math.sqrt(p);
+        while (p % pr != 0) pr--;
+        int pc = p / pr;
 
         Thread[] threads = new Thread[p];
-        int threadIdx = 0, startRow = 0;
-        int rowBase = n / pr, rowRem = n % pr;
-        int colBase = m / pc, colRem = m % pc;
-
+        int idx = 0;
         for (int r = 0; r < pr; r++) {
-            int r0 = startRow;
-            int r1 = startRow + rowBase + (r < rowRem ? 1 : 0);
-            int startCol = 0;
+            int[] rows = getChunk(r, n, pr);
             for (int c = 0; c < pc; c++) {
-                int c0 = startCol;
-                int c1 = startCol + colBase + (c < colRem ? 1 : 0);
-                threads[threadIdx++] = new Thread(() -> {
-                    for (int i = r0; i < r1; i++) {
-                        for (int j = c0; j < c1; j++) {
-                            V[i][j] = computeConvolution(F, C, i, j, n, m, k, radius);
-                        }
-                    }
-                });
-                startCol = c1;
+                int[] cols = getChunk(c, m, pc);
+                threads[idx++] = new Thread(() -> computeRegion(F, C, V, rows[0], rows[1], cols[0], cols[1], n, m, k / 2));
             }
-            startRow = r1;
         }
         startAndJoin(threads);
     }
 
+    // 5. Cyclic distribution: delta(i, j) = (i * m + j) % p
     public static void cyclic(int[][] F, int[][] C, int[][] V, int n, int m, int k, int p) throws InterruptedException {
-        int radius = k / 2;
+        int radius = k / 2, total = n * m;
         Thread[] threads = new Thread[p];
-        int total = n * m;
-
         for (int id = 0; id < p; id++) {
             int startId = id;
             threads[id] = new Thread(() -> {
                 for (int idx = startId; idx < total; idx += p) {
-                    V[idx / m][idx % m] = computeConvolution(F, C, idx / m, idx % m, n, m, k, radius);
+                    V[idx / m][idx % m] = computeConvolution(F, C, idx / m, idx % m, n, m, radius);
                 }
             });
         }
         startAndJoin(threads);
+    }
+
+    // Measures the execution time of a task in milliseconds
+    private static double measureMs(TaskRunner task) throws InterruptedException {
+        long t0 = System.nanoTime();
+        task.run();
+        return (System.nanoTime() - t0) / 1e6;
     }
 
     public static void main(String[] args) throws Exception {
@@ -188,9 +172,7 @@ public class Main {
 
         int[][] F = readMatrix(fFile);
         int[][] C = readMatrix(cFile);
-        int n = F.length;
-        int m = F[0].length;
-        int k = C.length;
+        int n = F.length, m = F[0].length, k = C.length;
 
         int[][] V_seq = new int[n][m];
         int[][] V_par = new int[n][m];
@@ -199,60 +181,47 @@ public class Main {
             System.out.printf("Matrix F: %d x %d | Kernel C: %d x %d | Threads p = %d%n", n, m, k, k, p);
             System.out.println("--------------------------------------------------");
 
-            long t0 = System.nanoTime();
-            sequential(F, C, V_seq, n, m, k);
-            long tSeq = System.nanoTime() - t0;
-            double msSeq = tSeq / 1e6;
+            double msSeq = measureMs(() -> sequential(F, C, V_seq, n, m, k));
             System.out.printf("[Sequential] Execution Time: %.4f ms%n", msSeq);
             writeMatrix("output.txt", V_seq);
+            writeMatrix("output_seq.txt", V_seq);
 
-            t0 = System.nanoTime();
-            horizontal(F, C, V_par, n, m, k, p);
-            long tHoriz = System.nanoTime() - t0;
-            double msHoriz = tHoriz / 1e6;
-            boolean okHoriz = areEqual(V_seq, V_par);
-            System.out.printf("[Horizontal] Execution Time: %.4f ms | Match: %b | Speedup: %.2fx%n", msHoriz, okHoriz, msSeq / msHoriz);
+            String[] labels = {"[Horizontal]", "[Vertical]  ", "[Block]     ", "[Cyclic]    "};
+            TaskRunner[] tasks = {
+                () -> horizontal(F, C, V_par, n, m, k, p),
+                () -> vertical(F, C, V_par, n, m, k, p),
+                () -> block(F, C, V_par, n, m, k, p),
+                () -> cyclic(F, C, V_par, n, m, k, p)
+            };
 
-            t0 = System.nanoTime();
-            vertical(F, C, V_par, n, m, k, p);
-            long tVert = System.nanoTime() - t0;
-            double msVert = tVert / 1e6;
-            boolean okVert = areEqual(V_seq, V_par);
-            System.out.printf("[Vertical]   Execution Time: %.4f ms | Match: %b | Speedup: %.2fx%n", msVert, okVert, msSeq / msVert);
-
-            t0 = System.nanoTime();
-            block(F, C, V_par, n, m, k, p);
-            long tBlock = System.nanoTime() - t0;
-            double msBlock = tBlock / 1e6;
-            boolean okBlock = areEqual(V_seq, V_par);
-            System.out.printf("[Block]      Execution Time: %.4f ms | Match: %b | Speedup: %.2fx%n", msBlock, okBlock, msSeq / msBlock);
-
-            t0 = System.nanoTime();
-            cyclic(F, C, V_par, n, m, k, p);
-            long tCyc = System.nanoTime() - t0;
-            double msCyc = tCyc / 1e6;
-            boolean okCyc = areEqual(V_seq, V_par);
-            System.out.printf("[Cyclic]     Execution Time: %.4f ms | Match: %b | Speedup: %.2fx%n", msCyc, okCyc, msSeq / msCyc);
-
+            for (int i = 0; i < labels.length; i++) {
+                double ms = measureMs(tasks[i]);
+                boolean ok = areEqual(V_seq, V_par);
+                System.out.printf("%s Execution Time: %.4f ms | Match: %b | Speedup: %.2fx%n",
+                        labels[i], ms, ok, msSeq / ms);
+            }
             System.out.println("--------------------------------------------------");
             System.out.println("Output matrix saved to output.txt");
             return;
         }
 
-        long start = System.nanoTime();
-        switch (mode) {
-            case "seq" -> sequential(F, C, V_par, n, m, k);
-            case "horizontal", "horiz" -> horizontal(F, C, V_par, n, m, k, p);
-            case "vertical", "vert" -> vertical(F, C, V_par, n, m, k, p);
-            case "block" -> block(F, C, V_par, n, m, k, p);
-            case "cyclic", "cyc" -> cyclic(F, C, V_par, n, m, k, p);
-            default -> throw new IllegalArgumentException("Unknown mode: " + mode);
-        }
-        long durationNs = System.nanoTime() - start;
-        double durationMs = durationNs / 1e6;
+        double durationMs = measureMs(() -> {
+            switch (mode) {
+                case "sequential" -> sequential(F, C, V_par, n, m, k);
+                case "horizontal" -> horizontal(F, C, V_par, n, m, k, p);
+                case "vertical" -> vertical(F, C, V_par, n, m, k, p);
+                case "block" -> block(F, C, V_par, n, m, k, p);
+                case "cyclic" -> cyclic(F, C, V_par, n, m, k, p);
+                default -> throw new IllegalArgumentException("Unknown mode: " + mode);
+            }
+        });
 
         writeMatrix("output.txt", V_par);
+        if (mode.equals("sequential")) {
+            writeMatrix("output_seq.txt", V_par);
+        }
 
+        // Verify correctness against the sequential baseline file
         File seqFile = resolveFile("output_seq.txt");
         if (seqFile.exists()) {
             int[][] expected = readMatrix(seqFile.getPath());

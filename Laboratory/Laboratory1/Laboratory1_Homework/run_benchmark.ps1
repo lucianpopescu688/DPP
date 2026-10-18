@@ -114,7 +114,7 @@ function Benchmark-Suite($name, $n, $m, $k, [int[]]$threadCounts) {
     Write-Host "`n[Java] Running Sequential Baseline..."
     $jSeqTimes = @()
     for ($r = 0; $r -lt $runs; $r++) {
-        $t = Run-Java -mode "seq" -p 1
+        $t = Run-Java -mode "sequential" -p 1
         $jSeqTimes += $t
     }
     Copy-Item $outTxt $outSeq -Force
@@ -125,7 +125,7 @@ function Benchmark-Suite($name, $n, $m, $k, [int[]]$threadCounts) {
     Write-Host "`n[C++ Dynamic] Running Sequential Baseline..."
     $cppDynSeqTimes = @()
     for ($r = 0; $r -lt $runs; $r++) {
-        $t = Run-Cpp -exe "ConvolutionDynamic.exe" -mode "seq" -p 1
+        $t = Run-Cpp -exe "ConvolutionDynamic.exe" -mode "sequential" -p 1
         $cppDynSeqTimes += $t
     }
     $cppDynSeqAvg = ($cppDynSeqTimes | Measure-Object -Average).Average
@@ -135,7 +135,7 @@ function Benchmark-Suite($name, $n, $m, $k, [int[]]$threadCounts) {
     Write-Host "`n[C++ Static] Running Sequential Baseline..."
     $cppStatSeqTimes = @()
     for ($r = 0; $r -lt $runs; $r++) {
-        $t = Run-Cpp -exe "ConvolutionStatic.exe" -mode "seq" -p 1
+        $t = Run-Cpp -exe "ConvolutionStatic.exe" -mode "sequential" -p 1
         $cppStatSeqTimes += $t
     }
     $cppStatSeqAvg = ($cppStatSeqTimes | Measure-Object -Average).Average

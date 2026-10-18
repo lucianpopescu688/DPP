@@ -7,31 +7,33 @@
 #include <chrono>
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 const int MAX_N = 10005;
 const int MAX_M = 10005;
 const int MAX_K = 11;
 
+// Statically allocated matrices in the .bss segment to prevent stack overflow
 static int F[MAX_N][MAX_M];
 static int C[MAX_K][MAX_K];
 static int V_seq[MAX_N][MAX_M];
 static int V_par[MAX_N][MAX_M];
 static int V_check[MAX_N][MAX_M];
 
+// Resolves file path from either the current directory or the parent directory
 std::string resolveFile(const std::string& filename) {
-    std::ifstream f(filename);
-    if (f.good()) return filename;
+    if (std::ifstream(filename).good()) return filename;
     std::string parent = "../" + filename;
-    std::ifstream fp(parent);
-    if (fp.good()) return parent;
+    if (std::ifstream(parent).good()) return parent;
     return filename;
 }
 
+// Reads a 2D matrix into a statically allocated array
 void readMatrix(const std::string& filename, int matrix[MAX_N][MAX_M], int& rows, int& cols) {
     std::ifstream file(resolveFile(filename));
     std::string line;
     if (!std::getline(file, line)) {
-        rows = 0; cols = 0;
+        rows = cols = 0;
         return;
     }
     std::stringstream ss(line);
@@ -45,6 +47,7 @@ void readMatrix(const std::string& filename, int matrix[MAX_N][MAX_M], int& rows
     }
 }
 
+// Reads the square convolution kernel C(k, k)
 void readKernel(const std::string& filename, int kernel[MAX_K][MAX_K], int& k) {
     std::ifstream file(resolveFile(filename));
     std::string line;
@@ -61,31 +64,35 @@ void readKernel(const std::string& filename, int kernel[MAX_K][MAX_K], int& k) {
     }
 }
 
+// Writes a statically allocated matrix to an output text file
 void writeMatrix(const std::string& filename, int matrix[MAX_N][MAX_M], int rows, int cols) {
     std::ofstream file(filename);
     file << rows << " " << cols << "\n";
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
-            file << matrix[i][j] << (j == cols - 1 ? "" : " ");
+            file << matrix[i][j] << (j + 1 < cols ? " " : "");
         }
         file << "\n";
     }
 }
 
-bool areEqual(int a[MAX_N][MAX_M], int b[MAX_N][MAX_M], int rows, int cols) {
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
+// Verifies that two statically allocated matrices have identical dimensions and values
+bool areEqual(int a[MAX_N][MAX_M], int b[MAX_N][MAX_M], int rowsA, int colsA, int rowsB, int colsB) {
+    if (rowsA != rowsB || colsA != colsB) return false;
+    for (int i = 0; i < rowsA; i++) {
+        for (int j = 0; j < colsA; j++) {
             if (a[i][j] != b[i][j]) return false;
         }
     }
     return true;
 }
 
-int computeConvolution(int i, int j, int n, int m, int k, int radius) {
+// Computes the convolution for a single cell (i, j) using clamped virtual borders
+int computeConvolution(int i, int j, int n, int m, int radius) {
     int sum = 0;
     for (int a = -radius; a <= radius; a++) {
+        int r = std::clamp(i + a, 0, n - 1);
         for (int b = -radius; b <= radius; b++) {
-            int r = std::clamp(i + a, 0, n - 1);
             int c = std::clamp(j + b, 0, m - 1);
             sum += F[r][c] * C[a + radius][b + radius];
         }
@@ -93,106 +100,86 @@ int computeConvolution(int i, int j, int n, int m, int k, int radius) {
     return sum;
 }
 
+// Computes convolution over the rectangular submatrix [r0, r1) x [c0, c1)
+void computeRegion(int V[MAX_N][MAX_M], int r0, int r1, int c0, int c1, int n, int m, int radius) {
+    for (int i = r0; i < r1; i++) {
+        for (int j = c0; j < c1; j++) {
+            V[i][j] = computeConvolution(i, j, n, m, radius);
+        }
+    }
+}
+
+// Returns balanced [start, end) bounds for partition 'id' out of 'parts'
+std::pair<int, int> getChunk(int id, int total, int parts) {
+    int base = total / parts, rem = total % parts;
+    int start = id * base + std::min(id, rem);
+    int end = start + base + (id < rem ? 1 : 0);
+    return {start, end};
+}
+
+// 1. Sequential convolution
 void sequential(int V[MAX_N][MAX_M], int n, int m, int k) {
-    int radius = k / 2;
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < m; j++) {
-            V[i][j] = computeConvolution(i, j, n, m, k, radius);
-        }
-    }
+    computeRegion(V, 0, n, 0, m, n, m, k / 2);
 }
 
+// 2. Horizontal decomposition (rows distributed across p threads)
 void horizontal(int V[MAX_N][MAX_M], int n, int m, int k, int p) {
-    int radius = k / 2;
     std::vector<std::jthread> threads;
     threads.reserve(p);
-
-    int base = n / p, rem = n % p, startRow = 0;
     for (int id = 0; id < p; id++) {
-        int r0 = startRow;
-        int r1 = startRow + base + (id < rem ? 1 : 0);
-        threads.emplace_back([=, &V]() {
-            for (int i = r0; i < r1; i++) {
-                for (int j = 0; j < m; j++) {
-                    V[i][j] = computeConvolution(i, j, n, m, k, radius);
-                }
-            }
-        });
-        startRow = r1;
+        auto [r0, r1] = getChunk(id, n, p);
+        threads.emplace_back(computeRegion, V, r0, r1, 0, m, n, m, k / 2);
     }
 }
 
+// 3. Vertical decomposition (columns distributed across p threads)
 void vertical(int V[MAX_N][MAX_M], int n, int m, int k, int p) {
-    int radius = k / 2;
     std::vector<std::jthread> threads;
     threads.reserve(p);
-
-    int base = m / p, rem = m % p, startCol = 0;
     for (int id = 0; id < p; id++) {
-        int c0 = startCol;
-        int c1 = startCol + base + (id < rem ? 1 : 0);
-        threads.emplace_back([=, &V]() {
-            for (int i = 0; i < n; i++) {
-                for (int j = c0; j < c1; j++) {
-                    V[i][j] = computeConvolution(i, j, n, m, k, radius);
-                }
-            }
-        });
-        startCol = c1;
+        auto [c0, c1] = getChunk(id, m, p);
+        threads.emplace_back(computeRegion, V, 0, n, c0, c1, n, m, k / 2);
     }
 }
 
+// 4. Block decomposition (2D submatrix grid pr x pc distributed across p threads)
 void block(int V[MAX_N][MAX_M], int n, int m, int k, int p) {
-    int radius = k / 2;
-    int pr = 1, pc = p;
-    for (int r = (int)std::sqrt(p); r >= 1; r--) {
-        if (p % r == 0) {
-            pr = r;
-            pc = p / r;
-            break;
-        }
-    }
+    int pr = static_cast<int>(std::sqrt(p));
+    while (p % pr != 0) pr--;
+    int pc = p / pr;
 
     std::vector<std::jthread> threads;
     threads.reserve(p);
-
-    int rowBase = n / pr, rowRem = n % pr;
-    int colBase = m / pc, colRem = m % pc;
-    int startRow = 0;
-
     for (int r = 0; r < pr; r++) {
-        int r0 = startRow;
-        int r1 = startRow + rowBase + (r < rowRem ? 1 : 0);
-        int startCol = 0;
+        auto [r0, r1] = getChunk(r, n, pr);
         for (int c = 0; c < pc; c++) {
-            int c0 = startCol;
-            int c1 = startCol + colBase + (c < colRem ? 1 : 0);
-            threads.emplace_back([=, &V]() {
-                for (int i = r0; i < r1; i++) {
-                    for (int j = c0; j < c1; j++) {
-                        V[i][j] = computeConvolution(i, j, n, m, k, radius);
-                    }
-                }
-            });
-            startCol = c1;
+            auto [c0, c1] = getChunk(c, m, pc);
+            threads.emplace_back(computeRegion, V, r0, r1, c0, c1, n, m, k / 2);
         }
-        startRow = r1;
     }
 }
 
+// 5. Cyclic distribution: delta(i, j) = (i * m + j) % p
 void cyclic(int V[MAX_N][MAX_M], int n, int m, int k, int p) {
-    int radius = k / 2;
+    int radius = k / 2, total = n * m;
     std::vector<std::jthread> threads;
     threads.reserve(p);
-
-    int total = n * m;
     for (int id = 0; id < p; id++) {
         threads.emplace_back([=, &V]() {
             for (int idx = id; idx < total; idx += p) {
-                V[idx / m][idx % m] = computeConvolution(idx / m, idx % m, n, m, k, radius);
+                V[idx / m][idx % m] = computeConvolution(idx / m, idx % m, n, m, radius);
             }
         });
     }
+}
+
+// Measures the execution time of a callable in milliseconds
+template <typename Func>
+double measureMs(Func&& fn) {
+    auto t0 = std::chrono::high_resolution_clock::now();
+    fn();
+    auto t1 = std::chrono::high_resolution_clock::now();
+    return std::chrono::duration<double, std::milli>(t1 - t0).count();
 }
 
 int main(int argc, char* argv[]) {
@@ -207,72 +194,51 @@ int main(int argc, char* argv[]) {
     readKernel(cFile, C, k);
 
     if (mode == "all" || mode == "verify") {
-        std::cout << "Matrix F: " << n << " x " << m << " | Kernel C: " << k << " x " << k << " | Threads p = " << p << "\n";
-        std::cout << "--------------------------------------------------\n";
+        std::cout << "Matrix F: " << n << " x " << m << " | Kernel C: " << k << " x " << k << " | Threads p = " << p << "\n"
+                  << "--------------------------------------------------\n";
 
-        auto t0 = std::chrono::high_resolution_clock::now();
-        sequential(V_seq, n, m, k);
-        auto t1 = std::chrono::high_resolution_clock::now();
-        double msSeq = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        double msSeq = measureMs([&]() { sequential(V_seq, n, m, k); });
         std::cout << "[Sequential] Execution Time: " << msSeq << " ms\n";
         writeMatrix("output.txt", V_seq, n, m);
+        writeMatrix("output_seq.txt", V_seq, n, m);
 
-        t0 = std::chrono::high_resolution_clock::now();
-        horizontal(V_par, n, m, k, p);
-        t1 = std::chrono::high_resolution_clock::now();
-        double msHoriz = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        bool okHoriz = areEqual(V_seq, V_par, n, m);
-        std::cout << "[Horizontal] Execution Time: " << msHoriz << " ms | Match: " << (okHoriz ? "true" : "false") << " | Speedup: " << (msSeq / msHoriz) << "x\n";
+        struct Variant { std::string label; std::function<void()> run; };
+        std::vector<Variant> variants = {
+            {"[Horizontal]", [&]() { horizontal(V_par, n, m, k, p); }},
+            {"[Vertical]  ", [&]() { vertical(V_par, n, m, k, p); }},
+            {"[Block]     ", [&]() { block(V_par, n, m, k, p); }},
+            {"[Cyclic]    ", [&]() { cyclic(V_par, n, m, k, p); }}
+        };
 
-        t0 = std::chrono::high_resolution_clock::now();
-        vertical(V_par, n, m, k, p);
-        t1 = std::chrono::high_resolution_clock::now();
-        double msVert = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        bool okVert = areEqual(V_seq, V_par, n, m);
-        std::cout << "[Vertical]   Execution Time: " << msVert << " ms | Match: " << (okVert ? "true" : "false") << " | Speedup: " << (msSeq / msVert) << "x\n";
-
-        t0 = std::chrono::high_resolution_clock::now();
-        block(V_par, n, m, k, p);
-        t1 = std::chrono::high_resolution_clock::now();
-        double msBlock = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        bool okBlock = areEqual(V_seq, V_par, n, m);
-        std::cout << "[Block]      Execution Time: " << msBlock << " ms | Match: " << (okBlock ? "true" : "false") << " | Speedup: " << (msSeq / msBlock) << "x\n";
-
-        t0 = std::chrono::high_resolution_clock::now();
-        cyclic(V_par, n, m, k, p);
-        t1 = std::chrono::high_resolution_clock::now();
-        double msCyc = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        bool okCyc = areEqual(V_seq, V_par, n, m);
-        std::cout << "[Cyclic]     Execution Time: " << msCyc << " ms | Match: " << (okCyc ? "true" : "false") << " | Speedup: " << (msSeq / msCyc) << "x\n";
-
-        std::cout << "--------------------------------------------------\n";
-        std::cout << "Output matrix saved to output.txt\n";
+        for (const auto& v : variants) {
+            double ms = measureMs(v.run);
+            bool ok = areEqual(V_seq, V_par, n, m, n, m);
+            std::cout << v.label << " Execution Time: " << ms << " ms | Match: "
+                      << (ok ? "true" : "false") << " | Speedup: " << (msSeq / ms) << "x\n";
+        }
+        std::cout << "--------------------------------------------------\nOutput matrix saved to output.txt\n";
         return 0;
     }
 
-    auto start = std::chrono::high_resolution_clock::now();
-    if (mode == "seq") {
-        sequential(V_par, n, m, k);
-    } else if (mode == "horizontal" || mode == "horiz") {
-        horizontal(V_par, n, m, k, p);
-    } else if (mode == "vertical" || mode == "vert") {
-        vertical(V_par, n, m, k, p);
-    } else if (mode == "block") {
-        block(V_par, n, m, k, p);
-    } else if (mode == "cyclic" || mode == "cyc") {
-        cyclic(V_par, n, m, k, p);
-    }
-    auto end = std::chrono::high_resolution_clock::now();
-    double durationMs = std::chrono::duration<double, std::milli>(end - start).count();
+    double durationMs = measureMs([&]() {
+        if (mode == "sequential") sequential(V_par, n, m, k);
+        else if (mode == "horizontal") horizontal(V_par, n, m, k, p);
+        else if (mode == "vertical") vertical(V_par, n, m, k, p);
+        else if (mode == "block") block(V_par, n, m, k, p);
+        else if (mode == "cyclic") cyclic(V_par, n, m, k, p);
+    });
 
     writeMatrix("output.txt", V_par, n, m);
+    if (mode == "sequential") {
+        writeMatrix("output_seq.txt", V_par, n, m);
+    }
 
+    // Verify correctness against the sequential baseline file
     std::string seqPath = resolveFile("output_seq.txt");
-    std::ifstream seqFile(seqPath);
-    if (seqFile.good()) {
+    if (std::ifstream(seqPath).good()) {
         int seqN = 0, seqM = 0;
         readMatrix(seqPath, V_check, seqN, seqM);
-        if (!areEqual(V_check, V_par, n, m)) {
+        if (!areEqual(V_check, V_par, seqN, seqM, n, m)) {
             std::cerr << "CORRECTNESS ERROR: Result does not match sequential baseline!\n";
             return 1;
         }
