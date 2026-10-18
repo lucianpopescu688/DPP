@@ -1,0 +1,55 @@
+# Laboratory 0: Vector Addition Documentation
+
+## 1. Requirements Analysis
+**Topic:** Sequential programming, environment setup, and performance benchmarking.
+**Requirements:** 
+- Implement a C++ program that adds two vectors `A` and `B` of size `n` (real numbers) and stores the result in vector `C`.
+- Measure the execution time of the vector addition operation.
+- Implement an automated script to run the executable multiple times (10 runs) and calculate the average execution time.
+**Constraints:**
+- The vectors must be large enough to properly measure time (e.g., n = 10,000,000).
+- Only the core addition loop should be timed, excluding memory allocation and random number generation overhead.
+- A sequential baseline must be established (in this case, C++ vs Java).
+
+## 2. Design
+**Data Structures:**
+- In C++: `std::vector<double>` is used for dynamically sized, contiguous memory arrays.
+- In Java: Primitive arrays `double[]` are used for maximum performance.
+**Thread Partitioning:**
+- Not applicable for Lab 0 (Purely sequential execution).
+**Functions & Relations:**
+- `main`: Entry point. Parses command line arguments, allocates memory, populates vectors with random data, starts timer, computes vector addition, stops timer, and prints execution time.
+- PowerShell script `run_tests.ps1`: Interacts with the executables. Executes the benchmarks in a loop, parses the console output, calculates averages, and stores results in `results.csv`.
+
+## 3. Implementation Details
+**C++ (`main.cpp`)**: 
+- `std::chrono::high_resolution_clock` is used for precise sub-millisecond time measurement.
+- `std::mt19937_64` and `std::uniform_real_distribution` are used to generate random doubles. The seed is taken from the system clock to avoid Windows/MinGW compatibility issues.
+- The project is compiled in both `Debug` and `Release` profiles using CMake to demonstrate compiler optimization benefits.
+
+**Java (`Main.java`)**: 
+- `System.nanoTime()` is used for precise time measurement.
+- `java.util.Random` is used for populating the arrays.
+- The JVM automatically performs JIT optimizations at runtime.
+
+**Testing Script (`run_tests.ps1`)**:
+- Written in PowerShell to automatically execute 10 runs of C++ (Debug), C++ (Release), and Java.
+- Output is captured and averaged mathematically, then appended to `results.csv` with a Timestamp.
+
+## 4. Test Cases & Environment
+**Input Data:** 
+- Vectors of size `n = 10,000,000` containing random real numbers between 0.0 and 100.0.
+**Verification:**
+- Execution output is strictly verified to ensure valid parsing of execution times.
+- Different inputs of `n` (e.g., 100 vs 10,000,000) successfully execute and demonstrate appropriate scaling of execution time.
+
+**Test Environment (Hardware Specifications):**
+- **CPU:** AMD Ryzen 7 3750H with Radeon Vega Mobile Gfx (4 Cores / 8 Threads, Base Clock: 2.3 GHz)
+- **RAM:** 32 GB (30 GB usable)
+- **Operating System:** Microsoft Windows 11 Education
+
+## 5. Results Analysis
+The automated benchmark script revealed significant performance differences based on language and compiler optimizations:
+- **C++ (Debug Mode)**: Slowest. Due to lack of `-O3` optimizations and `std::vector` safety/bounds checking overhead.
+- **Java**: Significantly faster than C++ Debug, as the JVM automatically optimizes and unrolls loops at runtime using the Just-In-Time (JIT) compiler.
+- **C++ (Release Mode)**: The fastest implementation. By enabling maximum compiler optimizations, the C++ compiler heavily optimizes the simple addition loop, outperforming the Java JVM baseline.

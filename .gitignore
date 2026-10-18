@@ -1,0 +1,18 @@
+# Build artifacts & binaries
+cmake-build-*/
+bin/
+out/
+*.exe
+*.class
+*.o
+*.obj
+*.pdb
+
+# IDE settings
+.idea/
+.vscode/
+
+# Large generated test data (exceeds GitHub's 100MB file size limit)
+MatrixF.txt
+output.txt
+output_seq.txt

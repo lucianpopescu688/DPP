@@ -1,0 +1,274 @@
+Language/Mode,Vector Size,Run Number,Execution Time
+	NEW TEST SESSION	
+C++ (Debug),1 inputs,Run 1,0.000100 ms
+C++ (Debug),1 inputs,Run 2,0.000100 ms
+C++ (Debug),1 inputs,Run 3,0.000100 ms
+C++ (Debug),1 inputs,Run 4,0.000100 ms
+C++ (Debug),1 inputs,Run 5,0.000000 ms
+C++ (Debug),1 inputs,Run 6,0.000100 ms
+C++ (Debug),1 inputs,Run 7,0.000100 ms
+C++ (Debug),1 inputs,Run 8,0.000100 ms
+C++ (Debug),1 inputs,Run 9,0.000000 ms
+C++ (Debug),1 inputs,Run 10,0.000200 ms
+C++ (Debug),1 inputs,Average,0.000090 ms
+C++ (Release),1 inputs,Run 1,0.000100 ms
+C++ (Release),1 inputs,Run 2,0.000100 ms
+C++ (Release),1 inputs,Run 3,0.000100 ms
+C++ (Release),1 inputs,Run 4,0.000100 ms
+C++ (Release),1 inputs,Run 5,0.000000 ms
+C++ (Release),1 inputs,Run 6,0.000000 ms
+C++ (Release),1 inputs,Run 7,0.000000 ms
+C++ (Release),1 inputs,Run 8,0.000200 ms
+C++ (Release),1 inputs,Run 9,0.000100 ms
+C++ (Release),1 inputs,Run 10,0.000100 ms
+C++ (Release),1 inputs,Average,0.000080 ms
+Java,1 inputs,Run 1,0.000500 ms
+Java,1 inputs,Run 2,0.000400 ms
+Java,1 inputs,Run 3,0.000600 ms
+Java,1 inputs,Run 4,0.000900 ms
+Java,1 inputs,Run 5,0.000400 ms
+Java,1 inputs,Run 6,0.000500 ms
+Java,1 inputs,Run 7,0.000300 ms
+Java,1 inputs,Run 8,0.000400 ms
+Java,1 inputs,Run 9,0.000600 ms
+Java,1 inputs,Run 10,0.000500 ms
+Java,1 inputs,Average,0.000510 ms
+	NEW TEST SESSION	
+C++ (Debug),10 inputs,Run 1,0.000400 ms
+C++ (Debug),10 inputs,Run 2,0.000300 ms
+C++ (Debug),10 inputs,Run 3,0.000300 ms
+C++ (Debug),10 inputs,Run 4,0.000300 ms
+C++ (Debug),10 inputs,Run 5,0.000400 ms
+C++ (Debug),10 inputs,Run 6,0.000300 ms
+C++ (Debug),10 inputs,Run 7,0.000300 ms
+C++ (Debug),10 inputs,Run 8,0.000200 ms
+C++ (Debug),10 inputs,Run 9,0.000300 ms
+C++ (Debug),10 inputs,Run 10,0.000200 ms
+C++ (Debug),10 inputs,Average,0.000300 ms
+C++ (Release),10 inputs,Run 1,0.000000 ms
+C++ (Release),10 inputs,Run 2,0.000100 ms
+C++ (Release),10 inputs,Run 3,0.000000 ms
+C++ (Release),10 inputs,Run 4,0.000100 ms
+C++ (Release),10 inputs,Run 5,0.000500 ms
+C++ (Release),10 inputs,Run 6,0.000100 ms
+C++ (Release),10 inputs,Run 7,0.000100 ms
+C++ (Release),10 inputs,Run 8,0.000100 ms
+C++ (Release),10 inputs,Run 9,0.000100 ms
+C++ (Release),10 inputs,Run 10,0.000000 ms
+C++ (Release),10 inputs,Average,0.000110 ms
+Java,10 inputs,Run 1,0.000800 ms
+Java,10 inputs,Run 2,0.000900 ms
+Java,10 inputs,Run 3,0.000600 ms
+Java,10 inputs,Run 4,0.000800 ms
+Java,10 inputs,Run 5,0.000600 ms
+Java,10 inputs,Run 6,0.000700 ms
+Java,10 inputs,Run 7,0.001000 ms
+Java,10 inputs,Run 8,0.020800 ms
+Java,10 inputs,Run 9,0.000700 ms
+Java,10 inputs,Run 10,0.000900 ms
+Java,10 inputs,Average,0.002780 ms
+	NEW TEST SESSION	
+C++ (Debug),100 inputs,Run 1,0.001400 ms
+C++ (Debug),100 inputs,Run 2,0.002000 ms
+C++ (Debug),100 inputs,Run 3,0.001400 ms
+C++ (Debug),100 inputs,Run 4,0.001700 ms
+C++ (Debug),100 inputs,Run 5,0.001500 ms
+C++ (Debug),100 inputs,Run 6,0.001500 ms
+C++ (Debug),100 inputs,Run 7,0.001800 ms
+C++ (Debug),100 inputs,Run 8,0.002300 ms
+C++ (Debug),100 inputs,Run 9,0.001800 ms
+C++ (Debug),100 inputs,Run 10,0.001500 ms
+C++ (Debug),100 inputs,Average,0.001690 ms
+C++ (Release),100 inputs,Run 1,0.000000 ms
+C++ (Release),100 inputs,Run 2,0.000000 ms
+C++ (Release),100 inputs,Run 3,0.000100 ms
+C++ (Release),100 inputs,Run 4,0.000100 ms
+C++ (Release),100 inputs,Run 5,0.000100 ms
+C++ (Release),100 inputs,Run 6,0.000200 ms
+C++ (Release),100 inputs,Run 7,0.000100 ms
+C++ (Release),100 inputs,Run 8,0.000100 ms
+C++ (Release),100 inputs,Run 9,0.000100 ms
+C++ (Release),100 inputs,Run 10,0.000100 ms
+C++ (Release),100 inputs,Average,0.000090 ms
+Java,100 inputs,Run 1,0.002900 ms
+Java,100 inputs,Run 2,0.002300 ms
+Java,100 inputs,Run 3,0.002800 ms
+Java,100 inputs,Run 4,0.002800 ms
+Java,100 inputs,Run 5,0.002300 ms
+Java,100 inputs,Run 6,0.002900 ms
+Java,100 inputs,Run 7,0.002900 ms
+Java,100 inputs,Run 8,0.002300 ms
+Java,100 inputs,Run 9,0.002900 ms
+Java,100 inputs,Run 10,0.002800 ms
+Java,100 inputs,Average,0.002690 ms
+	NEW TEST SESSION	
+C++ (Debug),1000 inputs,Run 1,0.016000 ms
+C++ (Debug),1000 inputs,Run 2,0.016100 ms
+C++ (Debug),1000 inputs,Run 3,0.016100 ms
+C++ (Debug),1000 inputs,Run 4,0.016300 ms
+C++ (Debug),1000 inputs,Run 5,0.012800 ms
+C++ (Debug),1000 inputs,Run 6,0.012900 ms
+C++ (Debug),1000 inputs,Run 7,0.012900 ms
+C++ (Debug),1000 inputs,Run 8,0.016100 ms
+C++ (Debug),1000 inputs,Run 9,0.016100 ms
+C++ (Debug),1000 inputs,Run 10,0.016200 ms
+C++ (Debug),1000 inputs,Average,0.015150 ms
+C++ (Release),1000 inputs,Run 1,0.000300 ms
+C++ (Release),1000 inputs,Run 2,0.000500 ms
+C++ (Release),1000 inputs,Run 3,0.000400 ms
+C++ (Release),1000 inputs,Run 4,0.000400 ms
+C++ (Release),1000 inputs,Run 5,0.000300 ms
+C++ (Release),1000 inputs,Run 6,0.000300 ms
+C++ (Release),1000 inputs,Run 7,0.000300 ms
+C++ (Release),1000 inputs,Run 8,0.000400 ms
+C++ (Release),1000 inputs,Run 9,0.000300 ms
+C++ (Release),1000 inputs,Run 10,0.000400 ms
+C++ (Release),1000 inputs,Average,0.000360 ms
+Java,1000 inputs,Run 1,0.027100 ms
+Java,1000 inputs,Run 2,0.019900 ms
+Java,1000 inputs,Run 3,0.020200 ms
+Java,1000 inputs,Run 4,0.024700 ms
+Java,1000 inputs,Run 5,0.019200 ms
+Java,1000 inputs,Run 6,0.025200 ms
+Java,1000 inputs,Run 7,0.025300 ms
+Java,1000 inputs,Run 8,0.020600 ms
+Java,1000 inputs,Run 9,0.020000 ms
+Java,1000 inputs,Run 10,0.021000 ms
+Java,1000 inputs,Average,0.022320 ms
+	NEW TEST SESSION	
+C++ (Debug),10000 inputs,Run 1,0.131100 ms
+C++ (Debug),10000 inputs,Run 2,0.127000 ms
+C++ (Debug),10000 inputs,Run 3,0.127000 ms
+C++ (Debug),10000 inputs,Run 4,0.127100 ms
+C++ (Debug),10000 inputs,Run 5,0.127200 ms
+C++ (Debug),10000 inputs,Run 6,0.172500 ms
+C++ (Debug),10000 inputs,Run 7,0.127100 ms
+C++ (Debug),10000 inputs,Run 8,0.127000 ms
+C++ (Debug),10000 inputs,Run 9,0.127000 ms
+C++ (Debug),10000 inputs,Run 10,0.127200 ms
+C++ (Debug),10000 inputs,Average,0.132020 ms
+C++ (Release),10000 inputs,Run 1,0.003400 ms
+C++ (Release),10000 inputs,Run 2,0.004700 ms
+C++ (Release),10000 inputs,Run 3,0.002900 ms
+C++ (Release),10000 inputs,Run 4,0.008300 ms
+C++ (Release),10000 inputs,Run 5,0.003200 ms
+C++ (Release),10000 inputs,Run 6,0.003700 ms
+C++ (Release),10000 inputs,Run 7,0.003200 ms
+C++ (Release),10000 inputs,Run 8,0.002600 ms
+C++ (Release),10000 inputs,Run 9,0.002600 ms
+C++ (Release),10000 inputs,Run 10,0.003500 ms
+C++ (Release),10000 inputs,Average,0.003810 ms
+Java,10000 inputs,Run 1,0.182300 ms
+Java,10000 inputs,Run 2,0.181000 ms
+Java,10000 inputs,Run 3,0.229400 ms
+Java,10000 inputs,Run 4,0.181100 ms
+Java,10000 inputs,Run 5,0.183100 ms
+Java,10000 inputs,Run 6,0.183100 ms
+Java,10000 inputs,Run 7,0.213400 ms
+Java,10000 inputs,Run 8,0.230500 ms
+Java,10000 inputs,Run 9,0.194200 ms
+Java,10000 inputs,Run 10,0.210700 ms
+Java,10000 inputs,Average,0.198880 ms
+	NEW TEST SESSION	
+C++ (Debug),1000000 inputs,Run 1,13.156400 ms
+C++ (Debug),1000000 inputs,Run 2,12.615200 ms
+C++ (Debug),1000000 inputs,Run 3,12.936400 ms
+C++ (Debug),1000000 inputs,Run 4,12.626200 ms
+C++ (Debug),1000000 inputs,Run 5,12.638400 ms
+C++ (Debug),1000000 inputs,Run 6,12.585300 ms
+C++ (Debug),1000000 inputs,Run 7,12.878000 ms
+C++ (Debug),1000000 inputs,Run 8,13.706900 ms
+C++ (Debug),1000000 inputs,Run 9,12.946300 ms
+C++ (Debug),1000000 inputs,Run 10,12.734900 ms
+C++ (Debug),1000000 inputs,Average,12.882400 ms
+C++ (Release),1000000 inputs,Run 1,1.455700 ms
+C++ (Release),1000000 inputs,Run 2,1.535300 ms
+C++ (Release),1000000 inputs,Run 3,1.560600 ms
+C++ (Release),1000000 inputs,Run 4,1.597800 ms
+C++ (Release),1000000 inputs,Run 5,1.611300 ms
+C++ (Release),1000000 inputs,Run 6,1.526800 ms
+C++ (Release),1000000 inputs,Run 7,1.516300 ms
+C++ (Release),1000000 inputs,Run 8,1.502500 ms
+C++ (Release),1000000 inputs,Run 9,1.538600 ms
+C++ (Release),1000000 inputs,Run 10,1.448400 ms
+C++ (Release),1000000 inputs,Average,1.529330 ms
+Java,1000000 inputs,Run 1,4.582800 ms
+Java,1000000 inputs,Run 2,4.077600 ms
+Java,1000000 inputs,Run 3,3.869500 ms
+Java,1000000 inputs,Run 4,3.947900 ms
+Java,1000000 inputs,Run 5,3.928300 ms
+Java,1000000 inputs,Run 6,4.152400 ms
+Java,1000000 inputs,Run 7,5.110600 ms
+Java,1000000 inputs,Run 8,3.728600 ms
+Java,1000000 inputs,Run 9,4.853500 ms
+Java,1000000 inputs,Run 10,5.024800 ms
+Java,1000000 inputs,Average,4.327600 ms
+	NEW TEST SESSION	
+C++ (Debug),10000000 inputs,Run 1,139.141000 ms
+C++ (Debug),10000000 inputs,Run 2,150.538000 ms
+C++ (Debug),10000000 inputs,Run 3,153.108000 ms
+C++ (Debug),10000000 inputs,Run 4,171.095000 ms
+C++ (Debug),10000000 inputs,Run 5,158.052000 ms
+C++ (Debug),10000000 inputs,Run 6,158.740000 ms
+C++ (Debug),10000000 inputs,Run 7,210.412000 ms
+C++ (Debug),10000000 inputs,Run 8,157.478000 ms
+C++ (Debug),10000000 inputs,Run 9,207.601000 ms
+C++ (Debug),10000000 inputs,Run 10,157.188000 ms
+C++ (Debug),10000000 inputs,Average,166.335300 ms
+C++ (Release),10000000 inputs,Run 1,16.249100 ms
+C++ (Release),10000000 inputs,Run 2,15.266400 ms
+C++ (Release),10000000 inputs,Run 3,17.391800 ms
+C++ (Release),10000000 inputs,Run 4,18.005700 ms
+C++ (Release),10000000 inputs,Run 5,18.609100 ms
+C++ (Release),10000000 inputs,Run 6,17.944300 ms
+C++ (Release),10000000 inputs,Run 7,16.416000 ms
+C++ (Release),10000000 inputs,Run 8,17.387100 ms
+C++ (Release),10000000 inputs,Run 9,17.627600 ms
+C++ (Release),10000000 inputs,Run 10,15.531800 ms
+C++ (Release),10000000 inputs,Average,17.042890 ms
+Java,10000000 inputs,Run 1,21.732300 ms
+Java,10000000 inputs,Run 2,23.803800 ms
+Java,10000000 inputs,Run 3,30.151000 ms
+Java,10000000 inputs,Run 4,23.122400 ms
+Java,10000000 inputs,Run 5,27.208500 ms
+Java,10000000 inputs,Run 6,23.560800 ms
+Java,10000000 inputs,Run 7,22.233900 ms
+Java,10000000 inputs,Run 8,23.031700 ms
+Java,10000000 inputs,Run 9,23.048200 ms
+Java,10000000 inputs,Run 10,21.535500 ms
+Java,10000000 inputs,Average,23.942810 ms
+,,,
+=== NEW TEST SESSION ===,,,,
+C++ (Debug),10000 inputs,Run 1,0.412500 ms
+C++ (Debug),10000 inputs,Run 2,0.395700 ms
+C++ (Debug),10000 inputs,Run 3,0.331400 ms
+C++ (Debug),10000 inputs,Run 4,0.224000 ms
+C++ (Debug),10000 inputs,Run 5,0.351800 ms
+C++ (Debug),10000 inputs,Run 6,0.228300 ms
+C++ (Debug),10000 inputs,Run 7,0.399100 ms
+C++ (Debug),10000 inputs,Run 8,0.298900 ms
+C++ (Debug),10000 inputs,Run 9,0.439100 ms
+C++ (Debug),10000 inputs,Run 10,0.423600 ms
+C++ (Debug),10000 inputs,Average,0.350440 ms
+C++ (Release),10000 inputs,Run 1,0.005100 ms
+C++ (Release),10000 inputs,Run 2,0.008700 ms
+C++ (Release),10000 inputs,Run 3,0.004900 ms
+C++ (Release),10000 inputs,Run 4,0.007500 ms
+C++ (Release),10000 inputs,Run 5,0.006100 ms
+C++ (Release),10000 inputs,Run 6,0.009800 ms
+C++ (Release),10000 inputs,Run 7,0.005300 ms
+C++ (Release),10000 inputs,Run 8,0.004400 ms
+C++ (Release),10000 inputs,Run 9,0.009100 ms
+C++ (Release),10000 inputs,Run 10,0.008500 ms
+C++ (Release),10000 inputs,Average,0.006940 ms
+Java,10000 inputs,Run 1,0.494300 ms
+Java,10000 inputs,Run 2,0.460000 ms
+Java,10000 inputs,Run 3,0.557000 ms
+Java,10000 inputs,Run 4,0.515600 ms
+Java,10000 inputs,Run 5,0.366200 ms
+Java,10000 inputs,Run 6,0.428900 ms
+Java,10000 inputs,Run 7,0.462500 ms
+Java,10000 inputs,Run 8,0.441600 ms
+Java,10000 inputs,Run 9,0.361000 ms
+Java,10000 inputs,Run 10,0.470500 ms
+Java,10000 inputs,Average,0.455760 ms
