@@ -174,10 +174,10 @@ public class Main {
         int[][] C = readMatrix(cFile);
         int n = F.length, m = F[0].length, k = C.length;
 
-        int[][] V_seq = new int[n][m];
         int[][] V_par = new int[n][m];
 
         if (mode.equals("all") || mode.equals("verify")) {
+            int[][] V_seq = new int[n][m];
             System.out.printf("Matrix F: %d x %d | Kernel C: %d x %d | Threads p = %d%n", n, m, k, k, p);
             System.out.println("--------------------------------------------------");
 

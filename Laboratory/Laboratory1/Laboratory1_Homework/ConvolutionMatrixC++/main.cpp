@@ -184,10 +184,10 @@ int main(int argc, char* argv[]) {
     int n = 0, m = 0, k = 0, kCols = 0;
     int** F = readMatrix(fFile, n, m);
     int** C = readMatrix(cFile, k, kCols);
-    int** V_seq = allocateMatrix(n, m);
     int** V_par = allocateMatrix(n, m);
 
     if (mode == "all" || mode == "verify") {
+        int** V_seq = allocateMatrix(n, m);
         std::cout << "Matrix F: " << n << " x " << m << " | Kernel C: " << k << " x " << k << " | Threads p = " << p << "\n"
                   << "--------------------------------------------------\n";
 
@@ -211,6 +211,7 @@ int main(int argc, char* argv[]) {
                       << (ok ? "true" : "false") << " | Speedup: " << (msSeq / ms) << "x\n";
         }
         std::cout << "--------------------------------------------------\nOutput matrix saved to output.txt\n";
+        freeMatrix(V_seq, n);
     } else {
         double durationMs = measureMs([&]() {
             if (mode == "sequential") sequential(F, C, V_par, n, m, k);
@@ -234,7 +235,7 @@ int main(int argc, char* argv[]) {
             freeMatrix(expected, seqN);
             if (!ok) {
                 std::cerr << "CORRECTNESS ERROR: Result does not match sequential baseline!\n";
-                freeMatrix(F, n); freeMatrix(C, k); freeMatrix(V_seq, n); freeMatrix(V_par, n);
+                freeMatrix(F, n); freeMatrix(C, k); freeMatrix(V_par, n);
                 return 1;
             }
         }
@@ -243,7 +244,6 @@ int main(int argc, char* argv[]) {
 
     freeMatrix(F, n);
     freeMatrix(C, k);
-    freeMatrix(V_seq, n);
     freeMatrix(V_par, n);
     return 0;
 }

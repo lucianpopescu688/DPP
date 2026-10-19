@@ -1,192 +1,72 @@
-param (
-    [int]$runs = 10
-)
+param ([int]$runs = 10)
 
-$jdk_path = "C:\Program Files\JetBrains\IntelliJ IDEA 2026.2.3\jbr\bin"
-if (Test-Path $jdk_path) {
-    $env:PATH = "$jdk_path;" + $env:PATH
-}
-
-$mingw_path = "C:\Program Files\JetBrains\CLion 2026.2.3.1\bin\mingw\bin"
-if (Test-Path $mingw_path) {
-    $env:PATH = "$mingw_path;" + $env:PATH
-}
+$jdk = "C:\Program Files\JetBrains\IntelliJ IDEA 2026.2.3\jbr\bin"
+$mingw = "C:\Program Files\JetBrains\CLion 2026.2.3.1\bin\mingw\bin"
+if (Test-Path $jdk)   { $env:PATH = "$jdk;$env:PATH" }
+if (Test-Path $mingw) { $env:PATH = "$mingw;$env:PATH" }
 
 $javaDir = "$PWD\ConvolutionMatrixJava"
-$cppDir = "$PWD\ConvolutionMatrixC++"
-
-if (-Not (Test-Path "$javaDir\bin")) {
-    New-Item -ItemType Directory -Path "$javaDir\bin" -Force | Out-Null
-}
-
-Write-Host "Building Java..."
-cmd /c "javac -d `"$javaDir\bin`" `"$javaDir\src\Main.java`""
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Java compilation failed!" -ForegroundColor Red
-    exit 1
-}
-
-Write-Host "Building C++ (C++26)..."
-$gpp = "$mingw_path\g++.exe"
-& $gpp -O3 -std=c++26 "$cppDir\main.cpp" -o "$cppDir\ConvolutionDynamic.exe"
-& $gpp -O3 -std=c++26 "$cppDir\main_static.cpp" -o "$cppDir\ConvolutionStatic.exe"
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "C++ compilation failed!" -ForegroundColor Red
-    exit 1
-}
-
-$matrixF = "$PWD\MatrixF.txt"
-$matrixC = "$PWD\ConvolutionM.txt"
-$outSeq = "$PWD\output_seq.txt"
-$outTxt = "$PWD\output.txt"
-
-function Generate-Inputs($n, $m, $k) {
-    Write-Host "Generating inputs ($n x $m, k=$k)..."
-    $rand = [System.Random]::new(42)
-
-    $fWriter = [System.IO.StreamWriter]::new($matrixF)
-    $fWriter.WriteLine("$n $m")
-    for ($i = 0; $i -lt $n; $i++) {
-        $sb = [System.Text.StringBuilder]::new()
-        for ($j = 0; $j -lt $m; $j++) {
-            [void]$sb.Append($rand.Next(0, 100)).Append(" ")
-        }
-        $fWriter.WriteLine($sb.ToString().TrimEnd())
-    }
-    $fWriter.Close()
-
-    $cWriter = [System.IO.StreamWriter]::new($matrixC)
-    $cWriter.WriteLine("$k")
-    for ($i = 0; $i -lt $k; $i++) {
-        $sb = [System.Text.StringBuilder]::new()
-        for ($j = 0; $j -lt $k; $j++) {
-            [void]$sb.Append($rand.Next(0, 10)).Append(" ")
-        }
-        $cWriter.WriteLine($sb.ToString().TrimEnd())
-    }
-    $cWriter.Close()
-}
-
+$cppDir  = "$PWD\ConvolutionMatrixC++"
 $csvJava = "$PWD\results_java.csv"
-$csvCpp = "$PWD\results_cpp.csv"
+$csvCpp  = "$PWD\results_cpp.csv"
 
-Set-Content -Path $csvJava -Value "Matrix Dimensions,Kernel,Algorithm,Threads,Average Time (ms),Speedup"
-Set-Content -Path $csvCpp -Value "Matrix Dimensions,Kernel,Allocation,Algorithm,Threads,Average Time (ms),Speedup"
+New-Item -ItemType Directory -Path "$javaDir\bin" -Force | Out-Null
+Write-Host "Compiling Java and C++..."
+cmd /c "javac -d `"$javaDir\bin`" `"$javaDir\src\Main.java`""
+$gpp = "$mingw\g++.exe"
+& $gpp -O3 -std=c++20 "$cppDir\main.cpp" -o "$cppDir\ConvolutionDynamic.exe"
+& $gpp -O3 -std=c++20 "$cppDir\main_static.cpp" -o "$cppDir\ConvolutionStatic.exe"
+if ($LASTEXITCODE -ne 0) { Write-Error "Compilation failed!"; exit 1 }
 
-function Parse-Time($out) {
-    if ($null -eq $out) { return 0.0 }
-    if ($out -is [array]) {
-        $last = $out[$out.length - 1].ToString().Trim()
-    } else {
-        $last = $out.ToString().Trim()
+Set-Content $csvJava "Matrix Dimensions,Kernel,Algorithm,Threads,Average Time (ms),Speedup"
+Set-Content $csvCpp  "Matrix Dimensions,Kernel,Allocation,Algorithm,Threads,Average Time (ms),Speedup"
+
+function Get-AvgTime([scriptblock]$cmd) {
+    $times = for ($r = 0; $r -lt $runs; $r++) {
+        $out = & $cmd 2>&1
+        if ($LASTEXITCODE -ne 0) { Write-Error "Run failed: $out"; exit 1 }
+        $last = if ($out -is [array]) { $out[-1].ToString().Trim() } else { $out.ToString().Trim() }
+        [double]$last
     }
-    return [double]$last
-}
-
-function Run-Java($mode, $p) {
-    $out = (cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main $mode $p `"$matrixF`" `"$matrixC`"" 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Java error: $out" -ForegroundColor Red
-        return $null
-    }
-    return Parse-Time $out
-}
-
-function Run-Cpp($exe, $mode, $p) {
-    $out = (cmd /c "`"$cppDir\$exe`" $mode $p `"$matrixF`" `"$matrixC`"" 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "C++ error: $out" -ForegroundColor Red
-        return $null
-    }
-    return Parse-Time $out
+    return ($times | Measure-Object -Average).Average
 }
 
 $algorithms = @("horizontal", "vertical", "block", "cyclic")
 
-function Benchmark-Suite($name, $n, $m, $k, [int[]]$threadCounts) {
-    Write-Host "`n=================================================="
-    Write-Host "Test Case: $name ($n x $m, k=$k)"
-    Write-Host "=================================================="
-    Generate-Inputs -n $n -m $m -k $k
+function Run-TestCase($name, $n, $m, $k, [int[]]$threads) {
+    Write-Host "`n=== $name ($n x $m, k=$k) ===" -ForegroundColor Cyan
+    powershell -ExecutionPolicy Bypass -File .\generateMatrices.ps1 -n $n -m $m -k $k
+    Remove-Item "$PWD\output_seq.txt" -ErrorAction SilentlyContinue
 
-    if (Test-Path $outSeq) { Remove-Item $outSeq -Force }
+    $jSeq    = Get-AvgTime { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main sequential 1 `"$PWD\MatrixF.txt`" `"$PWD\ConvolutionM.txt`"" }
+    $cDynSeq = Get-AvgTime { cmd /c "`"$cppDir\ConvolutionDynamic.exe`" sequential 1 `"$PWD\MatrixF.txt`" `"$PWD\ConvolutionM.txt`"" }
+    $cStaSeq = Get-AvgTime { cmd /c "`"$cppDir\ConvolutionStatic.exe`" sequential 1 `"$PWD\MatrixF.txt`" `"$PWD\ConvolutionM.txt`"" }
 
-    Write-Host "`n[Java] Running Sequential Baseline..."
-    $jSeqTimes = @()
-    for ($r = 0; $r -lt $runs; $r++) {
-        $t = Run-Java -mode "sequential" -p 1
-        $jSeqTimes += $t
-    }
-    Copy-Item $outTxt $outSeq -Force
-    $jSeqAvg = ($jSeqTimes | Measure-Object -Average).Average
-    Write-Host "[Java] Sequential Avg: $jSeqAvg ms"
-    Add-Content -Path $csvJava -Value "$($n)x$($m),$k,Sequential,1,$([math]::Round($jSeqAvg, 4)),1.00"
+    Add-Content $csvJava "$($n)x$($m),$k,Sequential,1,$([math]::Round($jSeq, 4)),1.00"
+    Add-Content $csvCpp  "$($n)x$($m),$k,Dynamic,Sequential,1,$([math]::Round($cDynSeq, 4)),1.00"
+    Add-Content $csvCpp  "$($n)x$($m),$k,Static,Sequential,1,$([math]::Round($cStaSeq, 4)),1.00"
 
-    Write-Host "`n[C++ Dynamic] Running Sequential Baseline..."
-    $cppDynSeqTimes = @()
-    for ($r = 0; $r -lt $runs; $r++) {
-        $t = Run-Cpp -exe "ConvolutionDynamic.exe" -mode "sequential" -p 1
-        $cppDynSeqTimes += $t
-    }
-    $cppDynSeqAvg = ($cppDynSeqTimes | Measure-Object -Average).Average
-    Write-Host "[C++ Dynamic] Sequential Avg: $cppDynSeqAvg ms"
-    Add-Content -Path $csvCpp -Value "$($n)x$($m),$k,Dynamic,Sequential,1,$([math]::Round($cppDynSeqAvg, 4)),1.00"
-
-    Write-Host "`n[C++ Static] Running Sequential Baseline..."
-    $cppStatSeqTimes = @()
-    for ($r = 0; $r -lt $runs; $r++) {
-        $t = Run-Cpp -exe "ConvolutionStatic.exe" -mode "sequential" -p 1
-        $cppStatSeqTimes += $t
-    }
-    $cppStatSeqAvg = ($cppStatSeqTimes | Measure-Object -Average).Average
-    Write-Host "[C++ Static] Sequential Avg: $cppStatSeqAvg ms"
-    Add-Content -Path $csvCpp -Value "$($n)x$($m),$k,Static,Sequential,1,$([math]::Round($cppStatSeqAvg, 4)),1.00"
-
-    foreach ($p in $threadCounts) {
-        Write-Host "`n--- Testing with p = $p threads ---"
-
+    foreach ($p in $threads) {
         foreach ($algo in $algorithms) {
-            $times = @()
-            for ($r = 0; $r -lt $runs; $r++) {
-                $t = Run-Java -mode $algo -p $p
-                $times += $t
-            }
-            $avg = ($times | Measure-Object -Average).Average
-            $speedup = if ($avg -gt 0) { [math]::Round(($jSeqAvg / $avg), 2) } else { 1.00 }
-            Write-Host "[Java] $algo (p=$p): Avg $avg ms | Speedup: $speedup x"
-            Add-Content -Path $csvJava -Value "$($n)x$($m),$k,$algo,$p,$([math]::Round($avg, 4)),$speedup"
-        }
+            $jTime = Get-AvgTime { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main $algo $p `"$PWD\MatrixF.txt`" `"$PWD\ConvolutionM.txt`"" }
+            $jSpd  = if ($jTime -gt 0) { [math]::Round($jSeq / $jTime, 2) } else { 1.00 }
+            Add-Content $csvJava "$($n)x$($m),$k,$algo,$p,$([math]::Round($jTime, 4)),$jSpd"
 
-        foreach ($algo in $algorithms) {
-            $times = @()
-            for ($r = 0; $r -lt $runs; $r++) {
-                $t = Run-Cpp -exe "ConvolutionDynamic.exe" -mode $algo -p $p
-                $times += $t
-            }
-            $avg = ($times | Measure-Object -Average).Average
-            $speedup = if ($avg -gt 0) { [math]::Round(($cppDynSeqAvg / $avg), 2) } else { 1.00 }
-            Write-Host "[C++ Dynamic] $algo (p=$p): Avg $avg ms | Speedup: $speedup x"
-            Add-Content -Path $csvCpp -Value "$($n)x$($m),$k,Dynamic,$algo,$p,$([math]::Round($avg, 4)),$speedup"
-        }
+            $dTime = Get-AvgTime { cmd /c "`"$cppDir\ConvolutionDynamic.exe`" $algo $p `"$PWD\MatrixF.txt`" `"$PWD\ConvolutionM.txt`"" }
+            $dSpd  = if ($dTime -gt 0) { [math]::Round($cDynSeq / $dTime, 2) } else { 1.00 }
+            Add-Content $csvCpp "$($n)x$($m),$k,Dynamic,$algo,$p,$([math]::Round($dTime, 4)),$dSpd"
 
-        foreach ($algo in $algorithms) {
-            $times = @()
-            for ($r = 0; $r -lt $runs; $r++) {
-                $t = Run-Cpp -exe "ConvolutionStatic.exe" -mode $algo -p $p
-                $times += $t
-            }
-            $avg = ($times | Measure-Object -Average).Average
-            $speedup = if ($avg -gt 0) { [math]::Round(($cppStatSeqAvg / $avg), 2) } else { 1.00 }
-            Write-Host "[C++ Static] $algo (p=$p): Avg $avg ms | Speedup: $speedup x"
-            Add-Content -Path $csvCpp -Value "$($n)x$($m),$k,Static,$algo,$p,$([math]::Round($avg, 4)),$speedup"
+            $sTime = Get-AvgTime { cmd /c "`"$cppDir\ConvolutionStatic.exe`" $algo $p `"$PWD\MatrixF.txt`" `"$PWD\ConvolutionM.txt`"" }
+            $sSpd  = if ($sTime -gt 0) { [math]::Round($cStaSeq / $sTime, 2) } else { 1.00 }
+            Add-Content $csvCpp "$($n)x$($m),$k,Static,$algo,$p,$([math]::Round($sTime, 4)),$sSpd"
+
+            Write-Host "p=$p [$algo] -> Java: $([math]::Round($jTime,2))ms | C++ Dyn: $([math]::Round($dTime,2))ms | C++ Stat: $([math]::Round($sTime,2))ms"
         }
     }
 }
 
-Benchmark-Suite -name "TC1" -n 10 -m 10 -k 3 -threadCounts @(4)
-Benchmark-Suite -name "TC2" -n 1000 -m 1000 -k 3 -threadCounts @(2, 4, 8, 16)
-Benchmark-Suite -name "TC3" -n 10 -m 10000 -k 5 -threadCounts @(2, 4, 8, 16)
-Benchmark-Suite -name "TC4" -n 10000 -m 10 -k 5 -threadCounts @(2, 4, 8, 16)
-Benchmark-Suite -name "TC5" -n 10000 -m 10000 -k 5 -threadCounts @(2, 4, 8, 16)
-
-Write-Host "`nAll benchmark runs completed! Results exported to $csvJava and $csvCpp." -ForegroundColor Green
+Run-TestCase "TC1" 10 10 3 @(4)
+Run-TestCase "TC2" 1000 1000 3 @(2, 4, 8, 16)
+Run-TestCase "TC3" 10 10000 5 @(2, 4, 8, 16)
+Run-TestCase "TC4" 10000 10 5 @(2, 4, 8, 16)
+Run-TestCase "TC5" 10000 10000 5 @(2, 4, 8, 16)
