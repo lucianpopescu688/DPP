@@ -145,13 +145,3 @@ Matrix Dimensions,Kernel,Allocation,Algorithm,Threads,Average Time (ms),Speedup
 10000x10000,5,Static,block,16,2028.37,3.6
 10000x10000,5,Dynamic,cyclic,16,4324.89,2.44
 10000x10000,5,Static,cyclic,16,3961.29,1.84
-10x10,3,Dynamic,Sequential,1,0.0122,1.00
-10x10,3,Static,Sequential,1,0.0735,1.00
-10x10,3,Dynamic,horizontal,4,2.641,0
-10x10,3,Static,horizontal,4,2.2929,0.03
-10x10,3,Dynamic,vertical,4,2.0308,0.01
-10x10,3,Static,vertical,4,3.0274,0.02
-10x10,3,Dynamic,block,4,4.4641,0
-10x10,3,Static,block,4,5.7825,0.01
-10x10,3,Dynamic,cyclic,4,2.5697,0
-10x10,3,Static,cyclic,4,2.239,0.03

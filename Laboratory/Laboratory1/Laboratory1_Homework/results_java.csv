@@ -72,8 +72,3 @@ Matrix Dimensions,Kernel,Algorithm,Threads,Average Time (ms),Speedup
 10000x10000,5,vertical,16,3491.3541,3.28
 10000x10000,5,block,16,3073.545,3.72
 10000x10000,5,cyclic,16,7799.6403,1.47
-10x10,3,Sequential,1,0.4804,1.00
-10x10,3,horizontal,4,15.513,0.03
-10x10,3,vertical,4,11.1425,0.04
-10x10,3,block,4,12.9414,0.04
-10x10,3,cyclic,4,9.1317,0.05

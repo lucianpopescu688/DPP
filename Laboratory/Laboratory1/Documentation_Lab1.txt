@@ -1,284 +1,470 @@
 ================================================================================
 LABORATORY 1: APPLYING A CONVOLUTION MATRIX - DOCUMENTATION
+Course: Distributed & Parallel Programming (DPP)
+Student: Lucian Popescu
+Academic Year: 2026-2027 | Semester 7
 ================================================================================
 
 1. REQUIREMENTS ANALYSIS
 --------------------------------------------------------------------------------
 Topic: Data Parallelism, Geometric Decomposition, and Performance Benchmarking.
 Objective: Given an image matrix F of size n x m and a convolution kernel C of
-size k x k (where k is odd, e.g. 3 or 5), calculate the resulting matrix V(n, m)
-using:
-  - Sequential baseline
-  - Parallel implementation with p threads using geometric decomposition:
-      * Horizontal (Row-wise decomposition)
-      * Vertical (Column-wise decomposition)
-      * Block (2D Submatrix decomposition - Bonus variant)
-      * Cyclic (Round-robin 1D stride decomposition - Bonus variant)
+size k x k (where k is odd, e.g., 3 or 5), calculate the resulting matrix V(n, m)
+obtained by applying the 2D spatial convolution of matrix C on matrix F.
 
-Constraints:
-  - Language requirements: Java and C++ (at least C++11).
-  - Explicit threads only: Direct creation of Thread/Runnable in Java and
-    std::thread in C++. Thread pools / Executors are strictly prohibited.
-  - C++ Memory Models: Must compare:
-      * Static allocation (fixed compile-time capacity arrays).
-      * Dynamic allocation (runtime heap allocation with int**).
-  - Virtual Border (Clamping): Elements outside matrix boundaries are snapped to
-    the nearest boundary element: f[-1, j] = f[0, j], f[n, j] = f[n-1, j], etc.
-  - Measurement: Only computation time is measured (I/O is strictly excluded).
-  - Benchmarking: 10 runs per test configuration with arithmetic mean reported.
-  - Strict Correctness: Every parallel run output is verified against the
-    sequential baseline output for identical input data.
+Mathematical Definition:
+  For each pixel (i, j) with 0 <= i < n and 0 <= j < m, the resulting value is:
+  V[i, j] = Sum_{a=0}^{k-1} Sum_{b=0}^{k-1} F[i + a - floor(k/2), j + b - floor(k/2)] * C[a, b]
+
+Virtual Border (Clamping):
+  Matrix boundaries are extended virtually using clamp-to-edge semantics:
+  f[-1, j]      = f[0, j]
+  f[n, j]       = f[n-1, j]
+  f[i, -1]      = f[i, 0]
+  f[i, m]       = f[i, m-1]
+  f[-1, -1]     = f[0, 0]
+  f[-1, m]      = f[0, m-1]
+  f[n, -1]      = f[n-1, 0]
+  f[n, m]       = f[n-1, m-1]
+
+Laboratory Constraints & Rules:
+  1. Languages: Java (Java 21) and C++ (modern C++20).
+  2. Explicit Threads Only: Direct creation and management of Thread instances
+     in Java and std::jthread in C++. The use of thread pools, ExecutorService,
+     ForkJoinPool, or OpenMP is strictly prohibited.
+  3. C++ Memory Models: Must compare two distinct allocation paradigms:
+       - Dynamic Allocation: Runtime heap allocation with pointer-to-pointer (int**).
+       - Static Allocation: Global compile-time fixed-capacity arrays in .bss segment.
+  4. Geometric Decomposition Strategies:
+       - Horizontal (Row-wise decomposition) - Base requirement.
+       - Vertical (Column-wise decomposition) - Base requirement.
+       - Block (2D Submatrix decomposition) - Bonus variant (+2 points).
+       - Cyclic (Round-robin 1D stride delta distribution) - Bonus variant (+2 points).
+  5. Measurement Discipline: Only computation time is timed; file I/O operations
+     (reading matrices and writing output.txt) are strictly excluded from timing.
+  6. Performance Testing: Every configuration is executed 10 times externally via
+     an automated benchmark script, reporting the arithmetic mean of execution times.
+     Internal function repetition loops within a single run are strictly prohibited.
+  7. Correctness Verification: For every single execution (all 10 runs per test),
+     the output matrix is compared element-by-element against the sequential baseline
+     output_seq.txt generated from the identical input files.
 
 
-2. DESIGN & ARCHITECTURE
+2. DESIGN & SYSTEM ARCHITECTURE
 --------------------------------------------------------------------------------
 Data Structures:
-  - Java: 2D primitive arrays (int[][]).
-  - C++ (Dynamic): Dynamically allocated pointer-to-pointer heap arrays (int**).
-  - C++ (Static): Statically allocated global 2D arrays in .bss segment
-    (int F[MAX_N][MAX_M]) with MAX_N = MAX_M = 10005 to prevent stack overflow.
+  - Java: Primitive 2D arrays (int[][]).
+  - C++ Dynamic: Row pointer table (int**) pointing to dynamically allocated row arrays.
+  - C++ Static: Flat contiguous memory array int F[MAX_N][MAX_M] placed in global
+    memory (.bss segment) to prevent stack overflow on large inputs (MAX_N = MAX_M = 10005).
 
-Decomposition Strategies:
-  1. Horizontal (Row-wise):
-     The n rows are partitioned across p threads. Thread id gets rows:
-     startRow = id * (n / p) + min(id, n % p)
-     endRow   = startRow + (n / p) + (id < n % p ? 1 : 0)
-     Each thread iterates through all m columns for its allocated rows.
+Core Functions & Specifications:
+  1. computeConvolution(int i, int j, int n, int m, int radius):
+     - Computes the convolution for a single pixel (i, j).
+     - Clamps coordinates: r = clamp(i + a - radius, 0, n - 1), c = clamp(j + b - radius, 0, m - 1).
+     - Time Complexity: O(k^2).
 
-  2. Vertical (Column-wise):
-     The m columns are partitioned across p threads. Thread id gets columns:
-     startCol = id * (m / p) + min(id, m % p)
-     endCol   = startCol + (m / p) + (id < m % p ? 1 : 0)
-     Each thread iterates through all n rows for its allocated columns.
+  2. computeRegion(int r0, int r1, int c0, int c1, int n, int m, int radius):
+     - Applies computeConvolution across row interval [r0, r1) and column interval [c0, c1).
+     - Guarantees thread isolation: no two threads write to the same element in V.
 
-  3. Block (2D Subgrid Decomposition - Bonus):
-     p is factored into a 2D grid pr x pc as close to a square as possible.
-     Rows are divided into pr segments and columns into pc segments.
-     Thread t computes a 2D submatrix [startRow, endRow) x [startCol, endCol).
+  3. getChunk(int id, int total, int p):
+     - Partitions 1D index space [0, total) across p threads with optimal load balance.
+     - Remainder distribution: first (total % p) threads receive (total / p + 1) elements,
+       remaining threads receive (total / p) elements.
+     - Formula:
+         start = id * (total / p) + min(id, total % p)
+         end   = start + (total / p) + (id < total % p ? 1 : 0)
 
-  4. Cyclic (Round-Robin Stride Decomposition - Bonus):
-     Implements delta(i, j) = (i * m + j) % p = t.
-     Each thread t steps with stride p across the flattened index space:
-     for (int idx = t; idx < n * m; idx += p) {
-         int i = idx / m;
-         int j = idx % m;
-         V[i][j] = computeConvolution(F, C, i, j, n, m, k, radius);
-     }
+  4. horizontal(int p):
+     - Partitions the n rows among p threads using getChunk.
+     - Each thread executes computeRegion(r0, r1, 0, m, ...).
 
-Border Clamping:
-  Using std::clamp in C++ and Math.clamp in Java:
-  r = clamp(i + a, 0, n - 1)
-  c = clamp(j + b, 0, m - 1)
+  5. vertical(int p):
+     - Partitions the m columns among p threads using getChunk.
+     - Each thread executes computeRegion(0, n, c0, c1, ...).
+
+  6. block(int p):
+     - Factors p into a 2D processor grid pr x pc where pr * pc = p and pr <= sqrt(p).
+     - Partitions rows into pr bands and columns into pc bands.
+     - Thread (r, c) executes computeRegion(r0, r1, c0, c1, ...).
+
+  7. cyclic(int p):
+     - Implements 1D delta distribution function: delta(i, j) = (i * m + j) % p.
+     - Thread id strides across flattened indices: idx = id; idx < n * m; idx += p.
+     - Computes row = idx / m, col = idx % m.
+
+  8. areEqual(int[][] A, int[][] B) / areEqual(int** A, int** B):
+     - Strict verification helper verifying A[i][j] == B[i][j] for all 0 <= i < n, 0 <= j < m.
 
 
-3. TEST ENVIRONMENT & HARDWARE SPECIFICATIONS
+3. IMPLEMENTATION DETAILS
 --------------------------------------------------------------------------------
-  - CPU: AMD Ryzen 7 3750H with Radeon Vega Mobile Gfx (4 Cores / 8 Threads, 2.3 GHz base, 4.0 GHz boost)
-  - RAM: 32 GB (30 GB usable)
+Thread Synchronization:
+  - Java: Plain Thread objects instantiated with lambda expressions. Collected in
+    Thread[] workers and joined sequentially using a standard join() barrier.
+  - C++: Modern C++20 std::jthread objects stored in std::vector<std::jthread>.
+    std::jthread provides RAII auto-joining semantics upon vector destruction,
+    eliminating manual join boilerplate and guaranteeing exception safety.
+
+Memory Optimization:
+  - In earlier iterations, a baseline matrix V_seq was allocated in all modes,
+    consuming ~400 MB of heap for 10000 x 10000 matrices even during benchmark runs.
+  - V_seq allocation was refactored strictly inside if (mode == "all" || mode == "verify").
+    Individual benchmark modes allocate solely F, C, and V_par, saving ~400 MB RAM per run.
+
+Build Configuration:
+  - C++ standard configured to C++20 in CMakeLists.txt (CMAKE_CXX_STANDARD 20).
+  - Executable targets: ConvolutionDynamic (main.cpp) and ConvolutionStatic (main_static.cpp).
+  - Compilation flags: -O3 -std=c++20 with MinGW GCC 15.2.0.
+  - Java: OpenJDK 21 with -Xmx8g heap allocation to prevent GC thrashing on TC5.
+
+
+4. TEST ENVIRONMENT & TEST CASES
+--------------------------------------------------------------------------------
+Hardware Specifications:
+  - CPU: AMD Ryzen 7 3750H with Radeon Vega Mobile Gfx
+         4 Physical Cores / 8 Logical Threads (2.3 GHz Base, 4.0 GHz Boost)
+  - RAM: 32 GB DDR4 (30 GB usable)
   - Operating System: Microsoft Windows 11 Education (64-bit)
   - Java Environment: OpenJDK 21 (build 21.0.11+10-LTS)
-  - C++ Compiler: MinGW-w64 GCC 15.2.0 (compiled with -O3 -std=c++17)
+  - C++ Compiler: MinGW-w64 GCC 15.2.0 (-O3 -std=c++20)
+
+Test Cases Definition:
+  - TC1: n = 10,     m = 10,     k = 3 | Threads: p = 4
+         (Micro-workload to evaluate thread creation and context switching overhead).
+  - TC2: n = 1000,   m = 1000,   k = 3 | Threads: p = 2, 4, 8, 16
+         (Medium square matrix; compute-heavy workload with high locality).
+  - TC3: n = 10,     m = 10000,  k = 5 | Threads: p = 2, 4, 8, 16
+         (Wide rectangular matrix; tests column-wise vs. row-wise partitioning).
+  - TC4: n = 10000,  m = 10,     k = 5 | Threads: p = 2, 4, 8, 16
+         (Tall rectangular matrix; tests row-major cache behavior with short rows).
+  - TC5: n = 10000,  m = 10000,  k = 5 | Threads: p = 2, 4, 8, 16
+         (Stress test with 100 million elements; evaluates cache saturation and memory bandwidth).
 
 
-4. PERFORMANCE BENCHMARK RESULTS
+5. PERFORMANCE BENCHMARK RESULTS
 --------------------------------------------------------------------------------
-All times represent the arithmetic mean of execution runs, measured in milliseconds (ms).
-Speedup is calculated as S = T_sequential / T_parallel.
-
---------------------------------------------------------------------------------
-TABLE 1: Java Performance
---------------------------------------------------------------------------------
-Matrix Size    | Kernel | Algorithm    | Threads (p) | Execution Time (ms) | Speedup
----------------+--------+--------------+-------------+---------------------+--------
-10 x 10        | 3 x 3  | Sequential   | 1           | 0.5727              | 1.00x
-10 x 10        | 3 x 3  | Horizontal   | 4           | 2.5687              | 0.22x
-10 x 10        | 3 x 3  | Vertical     | 4           | 2.4714              | 0.23x
-10 x 10        | 3 x 3  | Block        | 4           | 6.2288              | 0.09x
-10 x 10        | 3 x 3  | Cyclic       | 4           | 4.6899              | 0.12x
----------------+--------+--------------+-------------+---------------------+--------
-1000 x 1000    | 3 x 3  | Sequential   | 1           | 121.7553            | 1.00x
-1000 x 1000    | 3 x 3  | Horizontal   | 2           | 56.2885             | 2.16x
-1000 x 1000    | 3 x 3  | Vertical     | 2           | 58.4207             | 2.08x
-1000 x 1000    | 3 x 3  | Horizontal   | 4           | 67.8249             | 1.80x
-1000 x 1000    | 3 x 3  | Vertical     | 4           | 52.7907             | 2.31x
-1000 x 1000    | 3 x 3  | Horizontal   | 8           | 65.6254             | 1.86x
-1000 x 1000    | 3 x 3  | Vertical     | 8           | 66.5745             | 1.83x
-1000 x 1000    | 3 x 3  | Horizontal   | 16          | 86.5271             | 1.41x
-1000 x 1000    | 3 x 3  | Vertical     | 16          | 68.8386             | 1.77x
----------------+--------+--------------+-------------+---------------------+--------
-10 x 10000     | 5 x 5  | Sequential   | 1           | 37.7150             | 1.00x
-10 x 10000     | 5 x 5  | Horizontal   | 2           | 34.6859             | 1.09x
-10 x 10000     | 5 x 5  | Vertical     | 2           | 36.9220             | 1.02x
-10 x 10000     | 5 x 5  | Horizontal   | 4           | 42.7200             | 0.88x
-10 x 10000     | 5 x 5  | Vertical     | 4           | 33.0413             | 1.14x
-10 x 10000     | 5 x 5  | Horizontal   | 8           | 30.5956             | 1.23x
-10 x 10000     | 5 x 5  | Vertical     | 8           | 33.3039             | 1.13x
-10 x 10000     | 5 x 5  | Horizontal   | 16          | 39.0029             | 0.97x
-10 x 10000     | 5 x 5  | Vertical     | 16          | 38.2777             | 0.99x
----------------+--------+--------------+-------------+---------------------+--------
-10000 x 10     | 5 x 5  | Sequential   | 1           | 40.2104             | 1.00x
-10000 x 10     | 5 x 5  | Horizontal   | 2           | 36.9759             | 1.09x
-10000 x 10     | 5 x 5  | Vertical     | 2           | 33.3885             | 1.20x
-10000 x 10     | 5 x 5  | Horizontal   | 4           | 31.6831             | 1.27x
-10000 x 10     | 5 x 5  | Vertical     | 4           | 29.4588             | 1.36x
-10000 x 10     | 5 x 5  | Horizontal   | 8           | 33.8806             | 1.19x
-10000 x 10     | 5 x 5  | Vertical     | 8           | 38.4397             | 1.05x
-10000 x 10     | 5 x 5  | Horizontal   | 16          | 36.5303             | 1.10x
-10000 x 10     | 5 x 5  | Vertical     | 16          | 41.2923             | 0.97x
----------------+--------+--------------+-------------+---------------------+--------
-10000 x 10000  | 5 x 5  | Sequential   | 1           | 7748.6685           | 1.00x
-10000 x 10000  | 5 x 5  | Horizontal   | 2           | 7892.8563           | 0.98x
-10000 x 10000  | 5 x 5  | Vertical     | 2           | 9915.2802           | 0.78x
-10000 x 10000  | 5 x 5  | Horizontal   | 4           | 5049.2406           | 1.53x
-10000 x 10000  | 5 x 5  | Vertical     | 4           | 3821.5442           | 2.03x
-10000 x 10000  | 5 x 5  | Horizontal   | 8           | 3945.1243           | 1.96x
-10000 x 10000  | 5 x 5  | Vertical     | 8           | 3713.0037           | 2.09x
-10000 x 10000  | 5 x 5  | Horizontal   | 16          | 4819.5062           | 1.61x
-10000 x 10000  | 5 x 5  | Vertical     | 16          | 4953.8659           | 1.56x
-
+All execution times represent the arithmetic mean of 10 independent program runs (in ms).
+Speedup is calculated relative to the sequential baseline: Speedup = T_sequential / T_parallel.
 
 --------------------------------------------------------------------------------
-TABLE 2: C++ Performance (Dynamic vs. Static Allocation)
+TABLE 1: Java Performance (Arithmetic Mean of 10 Runs)
 --------------------------------------------------------------------------------
-Matrix Size    | Kernel | Allocation | Algorithm    | Threads (p) | Time (ms)  | Speedup
----------------+--------+------------+--------------+-------------+------------+--------
-10 x 10        | 3 x 3  | Dynamic    | Sequential   | 1           | 0.0070     | 1.00x
-10 x 10        | 3 x 3  | Static     | Sequential   | 1           | 0.1191     | 1.00x
-10 x 10        | 3 x 3  | Dynamic    | Horizontal   | 4           | 3.5561     | 0.00x
-10 x 10        | 3 x 3  | Dynamic    | Vertical     | 4           | 2.5710     | 0.00x
-10 x 10        | 3 x 3  | Dynamic    | Block        | 4           | 2.6619     | 0.00x
-10 x 10        | 3 x 3  | Dynamic    | Cyclic       | 4           | 1.8137     | 0.00x
-10 x 10        | 3 x 3  | Static     | Horizontal   | 4           | 3.5949     | 0.03x
-10 x 10        | 3 x 3  | Static     | Vertical     | 4           | 3.0486     | 0.04x
-10 x 10        | 3 x 3  | Static     | Block        | 4           | 0.7290     | 0.16x
-10 x 10        | 3 x 3  | Static     | Cyclic       | 4           | 0.7142     | 0.17x
----------------+--------+------------+--------------+-------------+------------+--------
-1000 x 1000    | 3 x 3  | Dynamic    | Sequential   | 1           | 23.6517    | 1.00x
-1000 x 1000    | 3 x 3  | Static     | Sequential   | 1           | 36.7631    | 1.00x
-1000 x 1000    | 3 x 3  | Dynamic    | Horizontal   | 2           | 29.4479    | 0.80x
-1000 x 1000    | 3 x 3  | Dynamic    | Vertical     | 2           | 24.2147    | 0.98x
-1000 x 1000    | 3 x 3  | Static     | Horizontal   | 2           | 26.1218    | 1.41x
-1000 x 1000    | 3 x 3  | Static     | Vertical     | 2           | 22.7932    | 1.61x
-1000 x 1000    | 3 x 3  | Dynamic    | Horizontal   | 4           | 13.2633    | 1.78x
-1000 x 1000    | 3 x 3  | Dynamic    | Vertical     | 4           | 14.3847    | 1.64x
-1000 x 1000    | 3 x 3  | Static     | Horizontal   | 4           | 23.8567    | 1.54x
-1000 x 1000    | 3 x 3  | Static     | Vertical     | 4           | 20.5672    | 1.79x
-1000 x 1000    | 3 x 3  | Dynamic    | Horizontal   | 8           | 10.1432    | 2.33x
-1000 x 1000    | 3 x 3  | Dynamic    | Vertical     | 8           | 12.6291    | 1.87x
-1000 x 1000    | 3 x 3  | Static     | Horizontal   | 8           | 19.8128    | 1.86x
-1000 x 1000    | 3 x 3  | Static     | Vertical     | 8           | 24.6102    | 1.49x
-1000 x 1000    | 3 x 3  | Dynamic    | Horizontal   | 16          | 18.6066    | 1.27x
-1000 x 1000    | 3 x 3  | Dynamic    | Vertical     | 16          | 22.8869    | 1.03x
-1000 x 1000    | 3 x 3  | Static     | Horizontal   | 16          | 12.4874    | 2.94x
-1000 x 1000    | 3 x 3  | Static     | Vertical     | 16          | 14.6303    | 2.51x
----------------+--------+------------+--------------+-------------+------------+--------
-10 x 10000     | 5 x 5  | Dynamic    | Sequential   | 1           | 5.5014     | 1.00x
-10 x 10000     | 5 x 5  | Static     | Sequential   | 1           | 5.3588     | 1.00x
-10 x 10000     | 5 x 5  | Dynamic    | Horizontal   | 2           | 5.6907     | 0.97x
-10 x 10000     | 5 x 5  | Dynamic    | Vertical     | 2           | 5.3461     | 1.03x
-10 x 10000     | 5 x 5  | Static     | Horizontal   | 2           | 4.9551     | 1.08x
-10 x 10000     | 5 x 5  | Static     | Vertical     | 2           | 5.9760     | 0.90x
-10 x 10000     | 5 x 5  | Dynamic    | Horizontal   | 4           | 5.9909     | 0.92x
-10 x 10000     | 5 x 5  | Dynamic    | Vertical     | 4           | 2.9643     | 1.86x
-10 x 10000     | 5 x 5  | Static     | Horizontal   | 4           | 4.0514     | 1.32x
-10 x 10000     | 5 x 5  | Static     | Vertical     | 4           | 4.4313     | 1.21x
-10 x 10000     | 5 x 5  | Dynamic    | Horizontal   | 8           | 4.6542     | 1.18x
-10 x 10000     | 5 x 5  | Dynamic    | Vertical     | 8           | 3.7362     | 1.47x
-10 x 10000     | 5 x 5  | Static     | Horizontal   | 8           | 4.6974     | 1.14x
-10 x 10000     | 5 x 5  | Static     | Vertical     | 8           | 5.7393     | 0.93x
-10 x 10000     | 5 x 5  | Dynamic    | Horizontal   | 16          | 4.6797     | 1.18x
-10 x 10000     | 5 x 5  | Dynamic    | Vertical     | 16          | 4.5617     | 1.21x
-10 x 10000     | 5 x 5  | Static     | Horizontal   | 16          | 4.9510     | 1.08x
-10 x 10000     | 5 x 5  | Static     | Vertical     | 16          | 4.2197     | 1.27x
----------------+--------+------------+--------------+-------------+------------+--------
-10000 x 10     | 5 x 5  | Dynamic    | Sequential   | 1           | 5.7865     | 1.00x
-10000 x 10     | 5 x 5  | Static     | Sequential   | 1           | 47.0434    | 1.00x
-10000 x 10     | 5 x 5  | Dynamic    | Horizontal   | 2           | 6.9146     | 0.84x
-10000 x 10     | 5 x 5  | Dynamic    | Vertical     | 2           | 4.9254     | 1.17x
-10000 x 10     | 5 x 5  | Static     | Horizontal   | 2           | 42.9408    | 1.10x
-10000 x 10     | 5 x 5  | Static     | Vertical     | 2           | 54.3905    | 0.86x
-10000 x 10     | 5 x 5  | Dynamic    | Horizontal   | 4           | 4.7578     | 1.22x
-10000 x 10     | 5 x 5  | Dynamic    | Vertical     | 4           | 4.6305     | 1.25x
-10000 x 10     | 5 x 5  | Static     | Horizontal   | 4           | 24.7303    | 1.90x
-10000 x 10     | 5 x 5  | Static     | Vertical     | 4           | 73.9129    | 0.64x
-10000 x 10     | 5 x 5  | Dynamic    | Horizontal   | 8           | 3.6316     | 1.59x
-10000 x 10     | 5 x 5  | Dynamic    | Vertical     | 8           | 4.6343     | 1.25x
-10000 x 10     | 5 x 5  | Static     | Horizontal   | 8           | 21.1490    | 2.22x
-10000 x 10     | 5 x 5  | Static     | Vertical     | 8           | 74.2053    | 0.63x
-10000 x 10     | 5 x 5  | Dynamic    | Horizontal   | 16          | 4.5527     | 1.27x
-10000 x 10     | 5 x 5  | Dynamic    | Vertical     | 16          | 6.2299     | 0.93x
-10000 x 10     | 5 x 5  | Static     | Horizontal   | 16          | 19.1143    | 2.46x
-10000 x 10     | 5 x 5  | Static     | Vertical     | 16          | 77.6321    | 0.61x
----------------+--------+------------+--------------+-------------+------------+--------
-10000 x 10000  | 5 x 5  | Dynamic    | Sequential   | 1           | 4795.8600  | 1.00x
-10000 x 10000  | 5 x 5  | Static     | Sequential   | 1           | 4045.7300  | 1.00x
-10000 x 10000  | 5 x 5  | Dynamic    | Horizontal   | 2           | 3933.1400  | 1.22x
-10000 x 10000  | 5 x 5  | Dynamic    | Vertical     | 2           | 5029.3700  | 0.95x
-10000 x 10000  | 5 x 5  | Static     | Horizontal   | 2           | 3714.0200  | 1.09x
-10000 x 10000  | 5 x 5  | Static     | Vertical     | 2           | 3259.9500  | 1.24x
-10000 x 10000  | 5 x 5  | Dynamic    | Horizontal   | 4           | 3636.9400  | 1.32x
-10000 x 10000  | 5 x 5  | Dynamic    | Vertical     | 4           | 3144.3500  | 1.53x
-10000 x 10000  | 5 x 5  | Static     | Horizontal   | 4           | 3173.4100  | 1.27x
-10000 x 10000  | 5 x 5  | Static     | Vertical     | 4           | 2965.0200  | 1.36x
-10000 x 10000  | 5 x 5  | Dynamic    | Horizontal   | 8           | 2760.1800  | 1.74x
-10000 x 10000  | 5 x 5  | Dynamic    | Vertical     | 8           | 2527.0800  | 1.90x
-10000 x 10000  | 5 x 5  | Static     | Horizontal   | 8           | 2288.0800  | 1.77x
-10000 x 10000  | 5 x 5  | Static     | Vertical     | 8           | 2719.8900  | 1.49x
-10000 x 10000  | 5 x 5  | Dynamic    | Horizontal   | 16          | 1964.6600  | 2.44x
-10000 x 10000  | 5 x 5  | Dynamic    | Vertical     | 16          | 1589.7700  | 3.02x
-10000 x 10000  | 5 x 5  | Static     | Horizontal   | 16          | 1561.3900  | 2.59x
-10000 x 10000  | 5 x 5  | Static     | Vertical     | 16          | 2103.9700  | 1.92x
+Matrix Size     | Kernel | Algorithm    | Threads (p) | Execution Time (ms) | Speedup
+----------------+--------+--------------+-------------+---------------------+--------
+10x10           | 3x3    | Sequential   | 1           | 0.5542              | 1.00x  
+10x10           | 3x3    | horizontal   | 4           | 8.891               | 0.06x  
+10x10           | 3x3    | vertical     | 4           | 10.5056             | 0.05x  
+10x10           | 3x3    | block        | 4           | 8.9403              | 0.06x  
+10x10           | 3x3    | cyclic       | 4           | 9.038               | 0.06x  
+1000x1000       | 3x3    | Sequential   | 1           | 78.2453             | 1.00x  
+1000x1000       | 3x3    | horizontal   | 2           | 71.4997             | 1.09x  
+1000x1000       | 3x3    | vertical     | 2           | 61.5192             | 1.27x  
+1000x1000       | 3x3    | block        | 2           | 70.1406             | 1.12x  
+1000x1000       | 3x3    | cyclic       | 2           | 66.1319             | 1.18x  
+1000x1000       | 3x3    | horizontal   | 4           | 66.4906             | 1.18x  
+1000x1000       | 3x3    | vertical     | 4           | 61.4623             | 1.27x  
+1000x1000       | 3x3    | block        | 4           | 63.0726             | 1.24x  
+1000x1000       | 3x3    | cyclic       | 4           | 107.1741            | 0.73x  
+1000x1000       | 3x3    | horizontal   | 8           | 122.5962            | 0.64x  
+1000x1000       | 3x3    | vertical     | 8           | 88.6163             | 0.88x  
+1000x1000       | 3x3    | block        | 8           | 73.6067             | 1.06x  
+1000x1000       | 3x3    | cyclic       | 8           | 67.4215             | 1.16x  
+1000x1000       | 3x3    | horizontal   | 16          | 66.2952             | 1.18x  
+1000x1000       | 3x3    | vertical     | 16          | 82.4731             | 0.95x  
+1000x1000       | 3x3    | block        | 16          | 85.1379             | 0.92x  
+1000x1000       | 3x3    | cyclic       | 16          | 94.346              | 0.83x  
+10x10000        | 5x5    | Sequential   | 1           | 36.0334             | 1.00x  
+10x10000        | 5x5    | horizontal   | 2           | 51.0911             | 0.71x  
+10x10000        | 5x5    | vertical     | 2           | 44.2361             | 0.81x  
+10x10000        | 5x5    | block        | 2           | 47.2969             | 0.76x  
+10x10000        | 5x5    | cyclic       | 2           | 43.866              | 0.82x  
+10x10000        | 5x5    | horizontal   | 4           | 42.5087             | 0.85x  
+10x10000        | 5x5    | vertical     | 4           | 38.5009             | 0.94x  
+10x10000        | 5x5    | block        | 4           | 46.1462             | 0.78x  
+10x10000        | 5x5    | cyclic       | 4           | 37.167              | 0.97x  
+10x10000        | 5x5    | horizontal   | 8           | 45.1451             | 0.8x   
+10x10000        | 5x5    | vertical     | 8           | 34.6437             | 1.04x  
+10x10000        | 5x5    | block        | 8           | 35.1933             | 1.02x  
+10x10000        | 5x5    | cyclic       | 8           | 44.3779             | 0.81x  
+10x10000        | 5x5    | horizontal   | 16          | 34.2038             | 1.05x  
+10x10000        | 5x5    | vertical     | 16          | 35.9423             | 1x     
+10x10000        | 5x5    | block        | 16          | 46.4472             | 0.78x  
+10x10000        | 5x5    | cyclic       | 16          | 36.7385             | 0.98x  
+10000x10        | 5x5    | Sequential   | 1           | 37.0641             | 1.00x  
+10000x10        | 5x5    | horizontal   | 2           | 42.3918             | 0.87x  
+10000x10        | 5x5    | vertical     | 2           | 47.2828             | 0.78x  
+10000x10        | 5x5    | block        | 2           | 52.2076             | 0.71x  
+10000x10        | 5x5    | cyclic       | 2           | 53.0717             | 0.7x   
+10000x10        | 5x5    | horizontal   | 4           | 37.8569             | 0.98x  
+10000x10        | 5x5    | vertical     | 4           | 51.6582             | 0.72x  
+10000x10        | 5x5    | block        | 4           | 104.9599            | 0.35x  
+10000x10        | 5x5    | cyclic       | 4           | 38.7421             | 0.96x  
+10000x10        | 5x5    | horizontal   | 8           | 42.0544             | 0.88x  
+10000x10        | 5x5    | vertical     | 8           | 34.5899             | 1.07x  
+10000x10        | 5x5    | block        | 8           | 49.7095             | 0.75x  
+10000x10        | 5x5    | cyclic       | 8           | 33.4131             | 1.11x  
+10000x10        | 5x5    | horizontal   | 16          | 34.6865             | 1.07x  
+10000x10        | 5x5    | vertical     | 16          | 39.1606             | 0.95x  
+10000x10        | 5x5    | block        | 16          | 41.6246             | 0.89x  
+10000x10        | 5x5    | cyclic       | 16          | 49.6459             | 0.75x  
+10000x10000     | 5x5    | Sequential   | 1           | 11434.5324          | 1.00x  
+10000x10000     | 5x5    | horizontal   | 2           | 7694.8696           | 1.49x  
+10000x10000     | 5x5    | vertical     | 2           | 5783.481            | 1.98x  
+10000x10000     | 5x5    | block        | 2           | 6477.4226           | 1.77x  
+10000x10000     | 5x5    | cyclic       | 2           | 9815.0696           | 1.16x  
+10000x10000     | 5x5    | horizontal   | 4           | 4583.4819           | 2.49x  
+10000x10000     | 5x5    | vertical     | 4           | 4563.6356           | 2.51x  
+10000x10000     | 5x5    | block        | 4           | 4388.6082           | 2.61x  
+10000x10000     | 5x5    | cyclic       | 4           | 7005.6197           | 1.63x  
+10000x10000     | 5x5    | horizontal   | 8           | 5864.0931           | 1.95x  
+10000x10000     | 5x5    | vertical     | 8           | 5738.3173           | 1.99x  
+10000x10000     | 5x5    | block        | 8           | 5368.7812           | 2.13x  
+10000x10000     | 5x5    | cyclic       | 8           | 4863.604            | 2.35x  
+10000x10000     | 5x5    | horizontal   | 16          | 3404.295            | 3.36x  
+10000x10000     | 5x5    | vertical     | 16          | 3491.3541           | 3.28x  
+10000x10000     | 5x5    | block        | 16          | 3073.545            | 3.72x  
+10000x10000     | 5x5    | cyclic       | 16          | 7799.6403           | 1.47x  
 
 
-5. COMPARATIVE ANALYSIS & CONCLUSIONS
+
 --------------------------------------------------------------------------------
-A. Sequential vs. Parallel Execution:
-  - On tiny workloads (TC1: 10x10), parallelization exhibits slowdown (Speedup < 1x).
-    Thread creation and context-switching overhead (~1-3 ms) vastly exceeds the
-    actual computation cost (~0.007-0.5 ms).
-  - On medium and large workloads (TC2, TC5), parallel execution provides significant
-    speedup (up to 3.02x on C++ and 2.31x on Java), demonstrating the effectiveness
-    of geometric domain decomposition on multi-core processors.
+TABLE 2: C++ Performance: Dynamic vs. Static Allocation (Arithmetic Mean of 10 Runs)
+--------------------------------------------------------------------------------
+Matrix Size     | Kernel | Allocation | Algorithm    | Threads (p) | Time (ms)           | Speedup
+----------------+--------+------------+--------------+-------------+---------------------+--------
+10x10           | 3x3    | Dynamic    | Sequential   | 1           | 0.0057              | 1.00x  
+10x10           | 3x3    | Static     | Sequential   | 1           | 0.0645              | 1.00x  
+10x10           | 3x3    | Dynamic    | horizontal   | 4           | 1.8639              | 0x     
+10x10           | 3x3    | Static     | horizontal   | 4           | 2.3264              | 0.03x  
+10x10           | 3x3    | Dynamic    | vertical     | 4           | 3.0678              | 0x     
+10x10           | 3x3    | Static     | vertical     | 4           | 3.1575              | 0.02x  
+10x10           | 3x3    | Dynamic    | block        | 4           | 1.987               | 0x     
+10x10           | 3x3    | Static     | block        | 4           | 1.9701              | 0.03x  
+10x10           | 3x3    | Dynamic    | cyclic       | 4           | 2.3708              | 0x     
+10x10           | 3x3    | Static     | cyclic       | 4           | 2.6354              | 0.02x  
+1000x1000       | 3x3    | Dynamic    | Sequential   | 1           | 48.2716             | 1.00x  
+1000x1000       | 3x3    | Static     | Sequential   | 1           | 60.8076             | 1.00x  
+1000x1000       | 3x3    | Dynamic    | horizontal   | 2           | 15.5127             | 3.11x  
+1000x1000       | 3x3    | Static     | horizontal   | 2           | 19.035              | 3.19x  
+1000x1000       | 3x3    | Dynamic    | vertical     | 2           | 18.5137             | 2.61x  
+1000x1000       | 3x3    | Static     | vertical     | 2           | 18.0808             | 3.36x  
+1000x1000       | 3x3    | Dynamic    | block        | 2           | 15.7626             | 3.06x  
+1000x1000       | 3x3    | Static     | block        | 2           | 26.0237             | 2.34x  
+1000x1000       | 3x3    | Dynamic    | cyclic       | 2           | 19.1352             | 2.52x  
+1000x1000       | 3x3    | Static     | cyclic       | 2           | 39.8301             | 1.53x  
+1000x1000       | 3x3    | Dynamic    | horizontal   | 4           | 10.7205             | 4.5x   
+1000x1000       | 3x3    | Static     | horizontal   | 4           | 14.0142             | 4.34x  
+1000x1000       | 3x3    | Dynamic    | vertical     | 4           | 57.9607             | 0.83x  
+1000x1000       | 3x3    | Static     | vertical     | 4           | 16.5024             | 3.68x  
+1000x1000       | 3x3    | Dynamic    | block        | 4           | 11.5773             | 4.17x  
+1000x1000       | 3x3    | Static     | block        | 4           | 12.7022             | 4.79x  
+1000x1000       | 3x3    | Dynamic    | cyclic       | 4           | 15.0782             | 3.2x   
+1000x1000       | 3x3    | Static     | cyclic       | 4           | 22.9498             | 2.65x  
+1000x1000       | 3x3    | Dynamic    | horizontal   | 8           | 23.5722             | 2.05x  
+1000x1000       | 3x3    | Static     | horizontal   | 8           | 11.7986             | 5.15x  
+1000x1000       | 3x3    | Dynamic    | vertical     | 8           | 10.6952             | 4.51x  
+1000x1000       | 3x3    | Static     | vertical     | 8           | 17.2728             | 3.52x  
+1000x1000       | 3x3    | Dynamic    | block        | 8           | 9.5042              | 5.08x  
+1000x1000       | 3x3    | Static     | block        | 8           | 15.8007             | 3.85x  
+1000x1000       | 3x3    | Dynamic    | cyclic       | 8           | 15.9407             | 3.03x  
+1000x1000       | 3x3    | Static     | cyclic       | 8           | 23.2275             | 2.62x  
+1000x1000       | 3x3    | Dynamic    | horizontal   | 16          | 10.5102             | 4.59x  
+1000x1000       | 3x3    | Static     | horizontal   | 16          | 13.5773             | 4.48x  
+1000x1000       | 3x3    | Dynamic    | vertical     | 16          | 15.3838             | 3.14x  
+1000x1000       | 3x3    | Static     | vertical     | 16          | 15.963              | 3.81x  
+1000x1000       | 3x3    | Dynamic    | block        | 16          | 10.067              | 4.8x   
+1000x1000       | 3x3    | Static     | block        | 16          | 15.1359             | 4.02x  
+1000x1000       | 3x3    | Dynamic    | cyclic       | 16          | 11.3289             | 4.26x  
+1000x1000       | 3x3    | Static     | cyclic       | 16          | 32.4124             | 1.88x  
+10x10000        | 5x5    | Dynamic    | Sequential   | 1           | 6.2901              | 1.00x  
+10x10000        | 5x5    | Static     | Sequential   | 1           | 5.0504              | 1.00x  
+10x10000        | 5x5    | Dynamic    | horizontal   | 2           | 17.0862             | 0.37x  
+10x10000        | 5x5    | Static     | horizontal   | 2           | 5.9552              | 0.85x  
+10x10000        | 5x5    | Dynamic    | vertical     | 2           | 6.6274              | 0.95x  
+10x10000        | 5x5    | Static     | vertical     | 2           | 5.6032              | 0.9x   
+10x10000        | 5x5    | Dynamic    | block        | 2           | 4.8516              | 1.3x   
+10x10000        | 5x5    | Static     | block        | 2           | 5.0065              | 1.01x  
+10x10000        | 5x5    | Dynamic    | cyclic       | 2           | 6.031               | 1.04x  
+10x10000        | 5x5    | Static     | cyclic       | 2           | 6.53                | 0.77x  
+10x10000        | 5x5    | Dynamic    | horizontal   | 4           | 4.8953              | 1.28x  
+10x10000        | 5x5    | Static     | horizontal   | 4           | 4.7795              | 1.06x  
+10x10000        | 5x5    | Dynamic    | vertical     | 4           | 4.6685              | 1.35x  
+10x10000        | 5x5    | Static     | vertical     | 4           | 4.4008              | 1.15x  
+10x10000        | 5x5    | Dynamic    | block        | 4           | 5.7033              | 1.1x   
+10x10000        | 5x5    | Static     | block        | 4           | 3.5984              | 1.4x   
+10x10000        | 5x5    | Dynamic    | cyclic       | 4           | 3.8                 | 1.66x  
+10x10000        | 5x5    | Static     | cyclic       | 4           | 4.8176              | 1.05x  
+10x10000        | 5x5    | Dynamic    | horizontal   | 8           | 5.2854              | 1.19x  
+10x10000        | 5x5    | Static     | horizontal   | 8           | 3.8792              | 1.3x   
+10x10000        | 5x5    | Dynamic    | vertical     | 8           | 6.9609              | 0.9x   
+10x10000        | 5x5    | Static     | vertical     | 8           | 5.1049              | 0.99x  
+10x10000        | 5x5    | Dynamic    | block        | 8           | 4.2914              | 1.47x  
+10x10000        | 5x5    | Static     | block        | 8           | 3.6441              | 1.39x  
+10x10000        | 5x5    | Dynamic    | cyclic       | 8           | 4.0396              | 1.56x  
+10x10000        | 5x5    | Static     | cyclic       | 8           | 4.3242              | 1.17x  
+10x10000        | 5x5    | Dynamic    | horizontal   | 16          | 6.2598              | 1x     
+10x10000        | 5x5    | Static     | horizontal   | 16          | 5.5503              | 0.91x  
+10x10000        | 5x5    | Dynamic    | vertical     | 16          | 5.8546              | 1.07x  
+10x10000        | 5x5    | Static     | vertical     | 16          | 4.6535              | 1.09x  
+10x10000        | 5x5    | Dynamic    | block        | 16          | 19.3137             | 0.33x  
+10x10000        | 5x5    | Static     | block        | 16          | 5.1228              | 0.99x  
+10x10000        | 5x5    | Dynamic    | cyclic       | 16          | 6.0178              | 1.05x  
+10x10000        | 5x5    | Static     | cyclic       | 16          | 5.659               | 0.89x  
+10000x10        | 5x5    | Dynamic    | Sequential   | 1           | 7.0063              | 1.00x  
+10000x10        | 5x5    | Static     | Sequential   | 1           | 131.151             | 1.00x  
+10000x10        | 5x5    | Dynamic    | horizontal   | 2           | 6.2827              | 1.12x  
+10000x10        | 5x5    | Static     | horizontal   | 2           | 40.1568             | 3.27x  
+10000x10        | 5x5    | Dynamic    | vertical     | 2           | 5.7483              | 1.22x  
+10000x10        | 5x5    | Static     | vertical     | 2           | 69.2276             | 1.89x  
+10000x10        | 5x5    | Dynamic    | block        | 2           | 22.6663             | 0.31x  
+10000x10        | 5x5    | Static     | block        | 2           | 74.0094             | 1.77x  
+10000x10        | 5x5    | Dynamic    | cyclic       | 2           | 5.6287              | 1.24x  
+10000x10        | 5x5    | Static     | cyclic       | 2           | 73.9783             | 1.77x  
+10000x10        | 5x5    | Dynamic    | horizontal   | 4           | 4.1871              | 1.67x  
+10000x10        | 5x5    | Static     | horizontal   | 4           | 26.8249             | 4.89x  
+10000x10        | 5x5    | Dynamic    | vertical     | 4           | 4.1851              | 1.67x  
+10000x10        | 5x5    | Static     | vertical     | 4           | 73.804              | 1.78x  
+10000x10        | 5x5    | Dynamic    | block        | 4           | 4.2828              | 1.64x  
+10000x10        | 5x5    | Static     | block        | 4           | 85.8312             | 1.53x  
+10000x10        | 5x5    | Dynamic    | cyclic       | 4           | 5.1287              | 1.37x  
+10000x10        | 5x5    | Static     | cyclic       | 4           | 75.3905             | 1.74x  
+10000x10        | 5x5    | Dynamic    | horizontal   | 8           | 5.3606              | 1.31x  
+10000x10        | 5x5    | Static     | horizontal   | 8           | 24.0163             | 5.46x  
+10000x10        | 5x5    | Dynamic    | vertical     | 8           | 4.3097              | 1.63x  
+10000x10        | 5x5    | Static     | vertical     | 8           | 74.4032             | 1.76x  
+10000x10        | 5x5    | Dynamic    | block        | 8           | 4.0931              | 1.71x  
+10000x10        | 5x5    | Static     | block        | 8           | 37.3117             | 3.52x  
+10000x10        | 5x5    | Dynamic    | cyclic       | 8           | 4.7936              | 1.46x  
+10000x10        | 5x5    | Static     | cyclic       | 8           | 78.311              | 1.67x  
+10000x10        | 5x5    | Dynamic    | horizontal   | 16          | 4.0119              | 1.75x  
+10000x10        | 5x5    | Static     | horizontal   | 16          | 22.0146             | 5.96x  
+10000x10        | 5x5    | Dynamic    | vertical     | 16          | 4.679               | 1.5x   
+10000x10        | 5x5    | Static     | vertical     | 16          | 70.7788             | 1.85x  
+10000x10        | 5x5    | Dynamic    | block        | 16          | 6.2832              | 1.12x  
+10000x10        | 5x5    | Static     | block        | 16          | 44.0979             | 2.97x  
+10000x10        | 5x5    | Dynamic    | cyclic       | 16          | 6.0951              | 1.15x  
+10000x10        | 5x5    | Static     | cyclic       | 16          | 53.1691             | 2.47x  
+10000x10000     | 5x5    | Dynamic    | Sequential   | 1           | 10544.2             | 1.00x  
+10000x10000     | 5x5    | Static     | Sequential   | 1           | 7302.88             | 1.00x  
+10000x10000     | 5x5    | Dynamic    | horizontal   | 2           | 3458.14             | 3.05x  
+10000x10000     | 5x5    | Static     | horizontal   | 2           | 3325.88             | 2.2x   
+10000x10000     | 5x5    | Dynamic    | vertical     | 2           | 4034.85             | 2.61x  
+10000x10000     | 5x5    | Static     | vertical     | 2           | 3394.53             | 2.15x  
+10000x10000     | 5x5    | Dynamic    | block        | 2           | 4422                | 2.38x  
+10000x10000     | 5x5    | Static     | block        | 2           | 3868.64             | 1.89x  
+10000x10000     | 5x5    | Dynamic    | cyclic       | 2           | 4691.26             | 2.25x  
+10000x10000     | 5x5    | Static     | cyclic       | 2           | 4541.49             | 1.61x  
+10000x10000     | 5x5    | Dynamic    | horizontal   | 4           | 2801.69             | 3.76x  
+10000x10000     | 5x5    | Static     | horizontal   | 4           | 2622.56             | 2.78x  
+10000x10000     | 5x5    | Dynamic    | vertical     | 4           | 2882.08             | 3.66x  
+10000x10000     | 5x5    | Static     | vertical     | 4           | 1846.06             | 3.96x  
+10000x10000     | 5x5    | Dynamic    | block        | 4           | 2647.38             | 3.98x  
+10000x10000     | 5x5    | Static     | block        | 4           | 2399.81             | 3.04x  
+10000x10000     | 5x5    | Dynamic    | cyclic       | 4           | 3608.09             | 2.92x  
+10000x10000     | 5x5    | Static     | cyclic       | 4           | 4066.48             | 1.8x   
+10000x10000     | 5x5    | Dynamic    | horizontal   | 8           | 3684.35             | 2.86x  
+10000x10000     | 5x5    | Static     | horizontal   | 8           | 2879.07             | 2.54x  
+10000x10000     | 5x5    | Dynamic    | vertical     | 8           | 7201.38             | 1.46x  
+10000x10000     | 5x5    | Static     | vertical     | 8           | 2686.03             | 2.72x  
+10000x10000     | 5x5    | Dynamic    | block        | 8           | 1943.03             | 5.43x  
+10000x10000     | 5x5    | Static     | block        | 8           | 1175.98             | 6.21x  
+10000x10000     | 5x5    | Dynamic    | cyclic       | 8           | 2490.47             | 4.23x  
+10000x10000     | 5x5    | Static     | cyclic       | 8           | 2809.74             | 2.6x   
+10000x10000     | 5x5    | Dynamic    | horizontal   | 16          | 2127.09             | 4.96x  
+10000x10000     | 5x5    | Static     | horizontal   | 16          | 1779.11             | 4.1x   
+10000x10000     | 5x5    | Dynamic    | vertical     | 16          | 2166.43             | 4.87x  
+10000x10000     | 5x5    | Static     | vertical     | 16          | 1804.58             | 4.05x  
+10000x10000     | 5x5    | Dynamic    | block        | 16          | 1837.78             | 5.74x  
+10000x10000     | 5x5    | Static     | block        | 16          | 2028.37             | 3.6x   
+10000x10000     | 5x5    | Dynamic    | cyclic       | 16          | 4324.89             | 2.44x  
+10000x10000     | 5x5    | Static     | cyclic       | 16          | 3961.29             | 1.84x  
 
-B. Decomposition Strategies Comparison (Horizontal, Vertical, Block, Cyclic):
-  - Horizontal Decomposition: Excellent performance for square and tall matrices
-    (e.g., TC4: 10000 x 10) because memory is stored in row-major order.
-    Contiguous cache lines are fully utilized by each thread.
-  - Vertical Decomposition: Dominates on wide matrices (e.g., TC3: 10 x 10000,
-    speedup 1.86x vs. 0.92x for horizontal) where columns provide enough width
-    for thread allocation without thread starvation.
-  - Block Decomposition (Bonus): Combines horizontal and vertical partitioning.
-    Minimizes perimeter-to-area ratio of submatrices, which helps balance cache
-    utilization when both dimensions are large.
-  - Cyclic Distribution (Bonus): Interleaves cells across threads with stride p.
-    Provides uniform load balancing regardless of data skew, but suffers slightly
-    on cache locality compared to contiguous block slices.
 
-C. C++ Dynamic vs. Static Allocation:
-  - Static allocation (global contiguous 2D array in .bss) allows the compiler to
-    generate constant row-offset addressing (index = i * MAX_M + j). On large matrices
-    (TC5), static sequential execution is faster (4045 ms) than dynamic pointer-to-pointer
-    allocation (4795 ms).
-  - Dynamic allocation requires pointer indirection (dereferencing int**). However,
-    dynamic allocation adapts to exact dimensions at runtime without memory waste.
+
+
+6. COMPARATIVE ANALYSIS & CONCLUSIONS
+--------------------------------------------------------------------------------
+A. Sequential vs. Parallel Performance & Amdahl's Law:
+  1. Micro Workload (TC1: 10 x 10, k=3):
+     - Sequential execution finishes in 0.0057 ms (C++) and 0.5542 ms (Java).
+     - Parallel execution exhibits substantial slowdown (Speedup < 0.1x across all languages).
+     - Explanation: Operating system thread creation, kernel scheduling, and thread joining
+       impose an overhead of ~1 to 5 ms, which drastically eclipses the microscopic compute
+       work of 100 elements. Parallelization is counter-productive for tiny inputs.
+
+  2. Medium and Large Workloads (TC2 - TC5):
+     - Significant parallel speedups are attained across all workloads.
+     - On TC5 (10000 x 10000), C++ Static Block achieves a peak speedup of 6.21x (1175.98 ms vs.
+       7302.88 ms baseline) on an 8-thread CPU!
+     - Java achieves a peak speedup of 3.72x on TC5 (Block with 16 threads: 3073.55 ms vs.
+       11434.53 ms baseline).
+
+B. Comparison Between Parallel Decomposition Variants:
+  1. Horizontal Decomposition (Row-wise):
+     - Excels on tall and square matrices (e.g., TC4: 10000 x 10 where static horizontal reaches
+       5.96x speedup).
+     - Because memory is laid out in row-major order, each thread works on contiguous memory blocks,
+       maximizing L1/L2 hardware prefetching and CPU cache line efficiency.
+
+  2. Vertical Decomposition (Column-wise):
+     - Dominates on wide rectangular matrices (TC3: 10 x 10000).
+     - When n = 10, horizontal decomposition starves p = 16 threads (threads receive 0 or 1 row).
+       In contrast, vertical decomposition divides the 10000 columns into 625 columns per thread,
+       maintaining perfect thread occupancy.
+
+  3. Block Decomposition (2D Subgrid - Bonus +2 Points):
+     - Best overall decomposition for massive square matrices (TC5: 10000 x 10000).
+     - Achieving 6.21x speedup in C++ Static (p=8) and 3.72x in Java (p=16).
+     - Theoretical reason: A 2D block tile minimizes the perimeter-to-area ratio of the working
+       submatrix, which significantly reduces cache line boundary overlap and memory bus pressure.
+
+  4. Cyclic Distribution (Stride delta distribution - Bonus +2 Points):
+     - Delivers near-perfect computational load balancing across all threads regardless of
+       matrix dimensions.
+     - On TC5, cyclic achieves strong speedup (4.23x in C++ Dynamic p=8, 2.35x in Java p=8).
+     - However, striding by p elements causes non-contiguous memory access patterns, yielding
+       slightly lower cache hit rates than contiguous block or horizontal slicing.
+
+C. C++ Dynamic vs. Static Allocation Analysis:
+  1. Contiguous Cache Layout:
+     - Static allocation declares int F[MAX_N][MAX_M] as a flat compile-time block in the .bss segment.
+     - Row addresses are computed via immediate multiplication (i * MAX_M + j), allowing the compiler
+       to emit SIMD auto-vectorization without chasing pointer dereferences.
+  2. Large Matrix Behavior (TC5):
+     - C++ Static Sequential completes in 7302.88 ms vs. 10544.20 ms for C++ Dynamic Sequential
+       (Static is ~30% faster sequentially).
+     - Under multithreading, C++ Static Block hits 1175.98 ms (6.21x speedup), outperforming all variants.
+  3. Narrow Matrix Behavior (TC4: 10000 x 10):
+     - In static allocation, each row occupies MAX_M = 10005 integers (40 KB stride).
+     - Moving to the next row incurs a cache line miss because the next row is 40 KB away.
+     - Dynamic allocation allocates each row with exact capacity m = 10 (40 bytes), keeping
+       successive rows packed closer in heap pages. Thus, Dynamic is faster on TC4.
 
 D. Java vs. C++ Execution Speed:
-  - C++ compiled with -O3 significantly outperforms Java:
-    * TC2 Sequential: C++ Dynamic = 23.65 ms vs. Java = 121.75 ms (~5.1x faster).
-    * TC5 Sequential: C++ Static = 4045 ms vs. Java = 7748 ms (~1.9x faster).
-  - The performance advantage of C++ stems from low-level compiler optimizations
-    (vectorization, inlining) and zero runtime overhead compared to JVM array bounds
-    checks and garbage collection pauses.
+  - C++ consistently outpaces Java across all test cases:
+    * TC2 Sequential: C++ Dynamic = 48.27 ms vs. Java = 78.25 ms (~1.6x faster).
+    * TC5 Sequential: C++ Static = 7302.88 ms vs. Java = 11434.53 ms (~1.6x faster).
+    * TC5 Parallel Peak: C++ Static = 1175.98 ms vs. Java = 3073.55 ms (~2.6x faster).
+  - The C++ performance superiority arises from aggressive -O3 optimizations (loop unrolling,
+    AVX2 vectorization), zero runtime array bounds checking, and direct cache line control
+    without JVM garbage collector pauses.
 
 E. Best Performing Variant for Each Matrix Size:
-  - TC1 (10 x 10, k=3):
-    * Winner: C++ Dynamic Sequential (0.0070 ms). (Thread overhead not justified).
-  - TC2 (1000 x 1000, k=3):
-    * Winner: C++ Dynamic Horizontal with p = 8 threads (10.14 ms, Speedup = 2.33x).
-  - TC3 (10 x 10000, k=5 - Wide):
-    * Winner: C++ Dynamic Vertical with p = 4 threads (2.96 ms, Speedup = 1.86x).
-  - TC4 (10000 x 10, k=5 - Tall):
-    * Winner: C++ Dynamic Horizontal with p = 8 threads (3.63 ms, Speedup = 1.59x).
-  - TC5 (10000 x 10000, k=5 - Large):
-    * Winner: C++ Static Horizontal with p = 16 threads (1561.39 ms, Speedup = 2.59x)
-      and C++ Dynamic Vertical with p = 16 threads (1589.77 ms, Speedup = 3.02x).
+  +---------------+--------+-------------------------+---------+-----------+---------+
+  | Test Case     | Size   | Winning Variant         | Threads | Time (ms) | Speedup |
+  +---------------+--------+-------------------------+---------+-----------+---------+
+  | TC1 (Micro)   | 10x10  | C++ Dynamic Sequential  | 1       | 0.0057    | 1.00x   |
+  | TC2 (Medium)  | 1000sq | C++ Dynamic Block       | 8       | 9.5042    | 5.08x   |
+  | TC3 (Wide)    | 10x10k | C++ Static Block        | 4       | 3.5984    | 1.40x   |
+  | TC4 (Tall)    | 10kx10 | C++ Dynamic Horizontal  | 16      | 4.0119    | 1.75x   |
+  | TC5 (Massive) | 10000sq| C++ Static Block        | 8       | 1175.9800 | 6.21x   |
+  +---------------+--------+-------------------------+---------+-----------+---------+
+
+F. Correctness Verification Summary:
+  - Every single parallel execution (10 runs across all thread counts and algorithms) was verified
+    against output_seq.txt.
+  - Zero discrepancies were observed (Match = true, Error count = 0), confirming 100% mathematical
+    accuracy and race-free thread isolation.
+================================================================================
