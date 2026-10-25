@@ -1,9 +1,3 @@
-================================================================================
-LABORATORY 1: APPLYING A CONVOLUTION MATRIX - DOCUMENTATION
-Course: Distributed & Parallel Programming (DPP)
-Student: Lucian Popescu | Year 4, Semester 7 (2026-2027)
-================================================================================
-
 1. REQUIREMENTS & PROBLEM FORMULATION
 --------------------------------------------------------------------------------
 Given an image matrix F(n, m) and an odd convolution kernel C(k, k), compute the
