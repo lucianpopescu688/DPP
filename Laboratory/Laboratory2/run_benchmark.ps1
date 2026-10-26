@@ -78,19 +78,7 @@ function Run-TestCase($name, $nVal, $mVal, $kVal, [int[]]$threadList) {
         $cSpdDisplay = if ($cRatio -lt 0.01) { "{0:N4}x" -f $cRatio } else { "{0:N2}x" -f $cRatio }
         Add-Content $csvCpp "$($nVal)x$($mVal),$kVal,Parallel_Barrier,$p,$([math]::Round($cTime, 4)),$cSpd"
 
-        $note = ""
-        if ($cRatio -lt 1.0 -and $nVal -le 10) {
-            $note = " (Note: on micro matrices, thread creation overhead ~1-2ms exceeds computation ~0.01ms)"
-        }
-        Write-Host "  >> Speedup (p=$p): Java = $jSpdDisplay | C++ = $cSpdDisplay$note`n" -ForegroundColor Cyan
-    }
-
-    if ($nVal -le 10 -and $mVal -le 10) {
-        Write-Host "============================================================" -ForegroundColor Cyan
-        Write-Host "  Resulting Filtered Matrix output.txt ($nVal x $mVal):" -ForegroundColor Yellow
-        Write-Host "============================================================" -ForegroundColor Cyan
-        Get-Content "output.txt"
-        Write-Host ""
+        Write-Host "  >> Speedup (p=$p): Java = $jSpdDisplay | C++ = $cSpdDisplay`n" -ForegroundColor Cyan
     }
 }
 
