@@ -42,6 +42,8 @@ function Run-Verification($n, $m, $k, $p) {
     & "$cppDir\Lab2InPlace.exe" all $p
 
     if ($n -le 10 -and $m -le 10) {
+        Write-Host "`n--- Kernel ConvolutionM.txt ($k x $k) ---" -ForegroundColor Yellow
+        Get-Content "ConvolutionM.txt"
         Write-Host "`n--- Resulting Matrix output.txt ($n x $m) ---" -ForegroundColor Yellow
         Get-Content "output.txt"
     }

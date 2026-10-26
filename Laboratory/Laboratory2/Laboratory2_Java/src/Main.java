@@ -5,12 +5,19 @@ import java.util.concurrent.CyclicBarrier;
 public class Main {
 
     // --- CONSTANTS ---
-    // Standard 3x3 sharpening kernel: center = 5, orthogonal neighbors = -1
-    static final int[][] KERNEL = {
+    // 3x3 convolution kernel (dynamically loaded from ConvolutionM.txt if present)
+    private static int[][] KERNEL = {
         { 0, -1,  0},
         {-1,  5, -1},
         { 0, -1,  0}
     };
+
+    static void loadKernel(String filename) {
+        int[][] kMat = readMatrix(filename);
+        if (kMat != null && kMat.length >= 3 && kMat[0].length >= 3) {
+            KERNEL = kMat;
+        }
+    }
 
     // --- FILE I/O ---
     static int[][] readMatrix(String filename) {
@@ -26,7 +33,7 @@ public class Main {
 
             StringTokenizer st = new StringTokenizer(line);
             int n = Integer.parseInt(st.nextToken());
-            int m = Integer.parseInt(st.nextToken());
+            int m = st.hasMoreTokens() ? Integer.parseInt(st.nextToken()) : n;
 
             int[][] matrix = new int[n][m];
             for (int i = 0; i < n; i++) {
@@ -206,14 +213,18 @@ public class Main {
         String mode = "all";
         int P = 4;
         String filename = "date.txt";
+        String kernelFile = "ConvolutionM.txt";
 
         // Clean, flexible argument parsing
         for (String arg : args) {
             if (Character.isDigit(arg.charAt(0))) P = Integer.parseInt(arg);
             else if (arg.equals("sequential") || arg.equals("parallel") || arg.equals("all") || arg.equals("verify")) mode = arg;
+            else if (arg.contains("Convolution")) kernelFile = arg;
             else if (arg.endsWith(".txt")) filename = arg;
         }
         if (P == 1 && !mode.equals("all")) mode = "sequential";
+
+        loadKernel(kernelFile);
 
         int[][] matrix = readMatrix(filename);
         if (matrix == null) {

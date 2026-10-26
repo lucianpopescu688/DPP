@@ -8,9 +8,8 @@
 #include <algorithm>
 #include <format>
 
-// --- CONSTANTS ---
-// Standard 3x3 sharpening kernel: center = 5, orthogonal neighbors = -1
-const int KERNEL[3][3] = {
+// 3x3 convolution kernel (dynamically loaded from ConvolutionM.txt if present)
+int KERNEL[3][3] = {
     { 0, -1,  0},
     {-1,  5, -1},
     { 0, -1,  0}
@@ -30,19 +29,48 @@ void free_matrix(int** matrix, int N) {
 }
 
 // --- FILE I/O ---
-// Searches current directory, parent directory, and grandparent directory
+// Reads matrix supporting both "N M" and single "k" header
 int** read_matrix(const std::string& filename, int& N, int& M) {
     std::ifstream fin(filename);
     if (!fin) fin.open("../" + filename);
     if (!fin) fin.open("../../" + filename);
     if (!fin) return nullptr;
 
-    if (!(fin >> N >> M)) return nullptr;
+    std::string line;
+    while (std::getline(fin, line)) {
+        if (!line.empty() && line.find_first_not_of(" \t\r\n") != std::string::npos) break;
+    }
+    if (line.empty()) return nullptr;
+
+    std::stringstream ss(line);
+    if (!(ss >> N)) return nullptr;
+    if (!(ss >> M)) M = N;
+
     auto** matrix = allocate_matrix(N, M);
     for (int i = 0; i < N; i++) {
-        for (int j = 0; j < M; j++) fin >> matrix[i][j];
+        for (int j = 0; j < M; j++) {
+            if (!(fin >> matrix[i][j])) {
+                free_matrix(matrix, N);
+                return nullptr;
+            }
+        }
     }
     return matrix;
+}
+
+void load_kernel(const std::string& filename = "ConvolutionM.txt") {
+    int k_rows = 0, k_cols = 0;
+    auto** k_mat = read_matrix(filename, k_rows, k_cols);
+    if (k_mat) {
+        if (k_rows >= 3 && k_cols >= 3) {
+            for (int i = 0; i < 3; i++) {
+                for (int j = 0; j < 3; j++) {
+                    KERNEL[i][j] = k_mat[i][j];
+                }
+            }
+        }
+        free_matrix(k_mat, k_rows);
+    }
 }
 
 void write_matrix(const std::string& filename, int** matrix, int N, int M) {
@@ -210,15 +238,19 @@ int main(int argc, char** argv) {
     std::string mode = "all";
     int P = 4;
     std::string filename = "date.txt";
+    std::string kernel_file = "ConvolutionM.txt";
 
     // Clean, flexible argument parsing
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (std::isdigit(arg[0])) P = std::stoi(arg);
         else if (arg == "sequential" || arg == "parallel" || arg == "all" || arg == "verify") mode = arg;
+        else if (arg.find("Convolution") != std::string::npos) kernel_file = arg;
         else if (arg.ends_with(".txt")) filename = arg;
     }
     if (P == 1 && mode != "all") mode = "sequential";
+
+    load_kernel(kernel_file);
 
     int N = 0, M = 0;
     auto** matrix = read_matrix(filename, N, M);

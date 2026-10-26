@@ -21,13 +21,16 @@ function Write-RandomMatrix($path, $rows, $cols, $header, $limit) {
     $writer.Close()
 }
 
-Write-Host "Generating date.txt ($n x $m)..."
+Write-Host "Generating date.txt ($n x $m) and ConvolutionM.txt ($k x $k)..."
 Write-RandomMatrix "date.txt" $n $m "$n $m" $maxVal
+Write-RandomMatrix "ConvolutionM.txt" $k $k "$k" 10
 
 # Copy to subdirectories so CLion and IntelliJ find the freshly generated data
-if (Test-Path "$PWD\Laboratory2_C++") { Copy-Item "$PWD\date.txt" "$PWD\Laboratory2_C++\date.txt" -Force }
-if (Test-Path "$PWD\Laboratory2_C++\cmake-build-debug") { Copy-Item "$PWD\date.txt" "$PWD\Laboratory2_C++\cmake-build-debug\date.txt" -Force }
-if (Test-Path "$PWD\Laboratory2_Java") { Copy-Item "$PWD\date.txt" "$PWD\Laboratory2_Java\date.txt" -Force }
-if (Test-Path "$PWD\Laboratory2_Java\Laboratory2_Java") { Copy-Item "$PWD\date.txt" "$PWD\Laboratory2_Java\Laboratory2_Java\date.txt" -Force }
+foreach ($sub in @("Laboratory2_C++", "Laboratory2_C++\cmake-build-debug", "Laboratory2_Java", "Laboratory2_Java\Laboratory2_Java")) {
+    if (Test-Path "$PWD\$sub") {
+        Copy-Item "$PWD\date.txt" "$PWD\$sub\date.txt" -Force
+        Copy-Item "$PWD\ConvolutionM.txt" "$PWD\$sub\ConvolutionM.txt" -Force
+    }
+}
 
 Write-Host "Files generated successfully!" -ForegroundColor Green
