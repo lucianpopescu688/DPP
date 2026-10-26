@@ -1,6 +1,9 @@
 param (
     [int]$runs = 10,
-    [string]$testCase = "all"
+    [string]$testCase = "all",
+    [int]$customN = 0,
+    [int]$customM = 0,
+    [int]$customP = 2
 )
 
 $jdk = "C:\Program Files\JetBrains\IntelliJ IDEA 2026.2.3\jbr\bin"
@@ -27,39 +30,40 @@ if ($testCase -eq "all" -or -not (Test-Path $csvJava)) {
     Set-Content $csvCpp  "Matrix Dimensions,Kernel,Algorithm,Threads,Average Time (ms),Speedup"
 }
 
-# 2. Helper: Executes a command $runs times, prints each run live, and returns the average
+# 2. Helper: Executes a command $runs times, prints each run on its own row, and returns the average
 function Get-AvgTime([string]$label, [scriptblock]$cmd) {
-    Write-Host ("  {0,-20} : " -f $label) -NoNewline
+    Write-Host "  $label" -ForegroundColor White
     $times = for ($r = 0; $r -lt $runs; $r++) {
         $out = & $cmd 2>&1
         if ($LASTEXITCODE -ne 0) { Write-Error "`nRun $($r+1) failed: $out"; exit 1 }
         $last = if ($out -is [array]) { $out[-1].ToString().Trim() } else { $out.ToString().Trim() }
         $val = [double]$last
-        Write-Host " [R$($r+1): $([math]::Round($val, 2))ms]" -NoNewline -ForegroundColor DarkGray
+        $runStr = ($r + 1).ToString("00")
+        Write-Host "    - Run ${runStr}: $([math]::Round($val, 4)) ms" -ForegroundColor DarkGray
         $val
     }
     $avg = ($times | Measure-Object -Average).Average
-    Write-Host " => Avg: $([math]::Round($avg, 4))ms" -ForegroundColor Green
+    Write-Host "    ===> Average: $([math]::Round($avg, 4)) ms`n" -ForegroundColor Green
     return $avg
 }
 
-# 3. Benchmark runner for a single test case
+# 3. Benchmark runner for a test case
 function Run-TestCase($name, $n, $m, $k, [int[]]$threads) {
     Write-Host "`n============================================================" -ForegroundColor Cyan
-    Write-Host "  $name - $n x $m matrix, kernel $k x $k (Running $runs iterations each)" -ForegroundColor White
+    Write-Host "  $name - $n x $m matrix, kernel $k x $k ($runs iterations per test)" -ForegroundColor White
     Write-Host "============================================================" -ForegroundColor Cyan
 
     powershell -ExecutionPolicy Bypass -File .\generateMatrices.ps1 -n $n -m $m -k $k
     Remove-Item "$PWD\output_seq.txt" -ErrorAction SilentlyContinue
 
-    Write-Host "`n[Sequential Baselines]" -ForegroundColor Yellow
+    Write-Host "`n--- [Sequential Baselines] ---" -ForegroundColor Yellow
     $jSeq = Get-AvgTime "Java 25 Sequential" { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main sequential 1 `"$PWD\date.txt`"" }
     $cSeq = Get-AvgTime "C++26   Sequential" { cmd /c "`"$cppDir\Lab2InPlace.exe`" sequential 1 `"$PWD\date.txt`"" }
 
     Add-Content $csvJava "$($n)x$($m),$k,Sequential,1,$([math]::Round($jSeq, 4)),1.00"
     Add-Content $csvCpp  "$($n)x$($m),$k,Sequential,1,$([math]::Round($cSeq, 4)),1.00"
 
-    Write-Host "`n[Parallel In-Place (Barrier Sync)]" -ForegroundColor Yellow
+    Write-Host "--- [Parallel In-Place (Barrier Sync)] ---" -ForegroundColor Yellow
     foreach ($p in $threads) {
         $jTime = Get-AvgTime "Java 25 (p=$p)" { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main parallel $p `"$PWD\date.txt`"" }
         $jSpd  = if ($jTime -gt 0) { [math]::Round($jSeq / $jTime, 2) } else { 1.00 }
@@ -69,11 +73,18 @@ function Run-TestCase($name, $n, $m, $k, [int[]]$threads) {
         $cSpd  = if ($cTime -gt 0) { [math]::Round($cSeq / $cTime, 2) } else { 1.00 }
         Add-Content $csvCpp "$($n)x$($m),$k,Parallel_Barrier,$p,$([math]::Round($cTime, 4)),$cSpd"
 
-        Write-Host "  -> Speedup vs Seq: Java = $($jSpd)x | C++ = $($cSpd)x" -ForegroundColor Cyan
+        Write-Host "  >> Speedup vs Sequential (p=$p): Java = $($jSpd)x | C++ = $($cSpd)x`n" -ForegroundColor Cyan
     }
 }
 
-# Run according to user selection
+# Custom input mode (if user specified -customN)
+if ($customN -gt 0) {
+    if ($customM -le 0) { $customM = $customN }
+    Run-TestCase "CustomTest" $customN $customM 3 @($customP)
+    exit 0
+}
+
+# Standard test cases
 if ($testCase -eq "all" -or $testCase -eq "1" -or $testCase -eq "tc1") {
     Run-TestCase "TC1" 10 10 3 @(2)
 }
@@ -84,6 +95,6 @@ if ($testCase -eq "all" -or $testCase -eq "3" -or $testCase -eq "tc3") {
     Run-TestCase "TC3" 10000 10000 3 @(2, 4, 8, 16)
 }
 
-Write-Host "`nAll benchmarks completed! Results saved to:" -ForegroundColor Green
+Write-Host "All benchmarks completed! Results saved to:" -ForegroundColor Green
 Write-Host "  - $csvJava"
 Write-Host "  - $csvCpp"
