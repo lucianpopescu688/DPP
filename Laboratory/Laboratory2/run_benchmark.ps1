@@ -11,6 +11,7 @@ $cppDir  = "$PWD\Laboratory2_C++"
 $csvJava = "$PWD\results_java_lab2.csv"
 $csvCpp  = "$PWD\results_cpp_lab2.csv"
 
+# 1. Compile Java & C++
 New-Item -ItemType Directory -Path "$javaDir\bin" -Force | Out-Null
 Write-Host "Compiling Java and C++20..."
 cmd /c "javac -d `"$javaDir\bin`" `"$javaDir\src\Main.java`""
@@ -18,9 +19,10 @@ $gpp = if (Test-Path "$mingw\g++.exe") { "$mingw\g++.exe" } else { "g++" }
 & $gpp -O3 -std=c++20 "$cppDir\main.cpp" -o "$cppDir\Lab2InPlace.exe"
 if ($LASTEXITCODE -ne 0) { Write-Error "Compilation failed!"; exit 1 }
 
-Set-Content $csvJava "Matrix Dimensions,Kernel,Variant,Threads,Average Time (ms),Speedup"
-Set-Content $csvCpp  "Matrix Dimensions,Kernel,Variant,Threads,Average Time (ms),Speedup"
+Set-Content $csvJava "Matrix Dimensions,Kernel,Algorithm,Threads,Average Time (ms),Speedup"
+Set-Content $csvCpp  "Matrix Dimensions,Kernel,Algorithm,Threads,Average Time (ms),Speedup"
 
+# 2. Helper: Executes a command $runs times and returns the average time in ms
 function Get-AvgTime([scriptblock]$cmd) {
     $times = for ($r = 0; $r -lt $runs; $r++) {
         $out = & $cmd 2>&1
@@ -31,13 +33,13 @@ function Get-AvgTime([scriptblock]$cmd) {
     return ($times | Measure-Object -Average).Average
 }
 
-$variants = @("1b", "1f", "2b", "2f")
-
+# 3. Benchmark runner for a single test case
 function Run-TestCase($name, $n, $m, $k, [int[]]$threads) {
     Write-Host "`n=== $name ($n x $m, k=$k) ===" -ForegroundColor Cyan
     powershell -ExecutionPolicy Bypass -File .\generateMatrices.ps1 -n $n -m $m -k $k
     Remove-Item "$PWD\output_seq.txt" -ErrorAction SilentlyContinue
 
+    # Sequential baselines (automatically generates output_seq.txt)
     $jSeq = Get-AvgTime { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main sequential 1 `"$PWD\date.txt`"" }
     $cSeq = Get-AvgTime { cmd /c "`"$cppDir\Lab2InPlace.exe`" sequential 1 `"$PWD\date.txt`"" }
 
@@ -45,18 +47,17 @@ function Run-TestCase($name, $n, $m, $k, [int[]]$threads) {
     Add-Content $csvCpp  "$($n)x$($m),$k,Sequential,1,$([math]::Round($cSeq, 4)),1.00"
     Write-Host "Sequential -> Java: $([math]::Round($jSeq,4))ms | C++: $([math]::Round($cSeq,4))ms"
 
+    # Parallel (Variant 2B with Barrier)
     foreach ($p in $threads) {
-        foreach ($v in $variants) {
-            $jTime = Get-AvgTime { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main $v $p `"$PWD\date.txt`"" }
-            $jSpd  = if ($jTime -gt 0) { [math]::Round($jSeq / $jTime, 2) } else { 1.00 }
-            Add-Content $csvJava "$($n)x$($m),$k,Variant_$v,$p,$([math]::Round($jTime, 4)),$jSpd"
+        $jTime = Get-AvgTime { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main parallel $p `"$PWD\date.txt`"" }
+        $jSpd  = if ($jTime -gt 0) { [math]::Round($jSeq / $jTime, 2) } else { 1.00 }
+        Add-Content $csvJava "$($n)x$($m),$k,Parallel_Barrier,$p,$([math]::Round($jTime, 4)),$jSpd"
 
-            $cTime = Get-AvgTime { cmd /c "`"$cppDir\Lab2InPlace.exe`" $v $p `"$PWD\date.txt`"" }
-            $cSpd  = if ($cTime -gt 0) { [math]::Round($cSeq / $cTime, 2) } else { 1.00 }
-            Add-Content $csvCpp "$($n)x$($m),$k,Variant_$v,$p,$([math]::Round($cTime, 4)),$cSpd"
+        $cTime = Get-AvgTime { cmd /c "`"$cppDir\Lab2InPlace.exe`" parallel $p `"$PWD\date.txt`"" }
+        $cSpd  = if ($cTime -gt 0) { [math]::Round($cSeq / $cTime, 2) } else { 1.00 }
+        Add-Content $csvCpp "$($n)x$($m),$k,Parallel_Barrier,$p,$([math]::Round($cTime, 4)),$cSpd"
 
-            Write-Host "p=$p [Variant $v] -> Java: $([math]::Round($jTime,2))ms ($($jSpd)x) | C++: $([math]::Round($cTime,2))ms ($($cSpd)x)"
-        }
+        Write-Host "p=$p [Parallel] -> Java: $([math]::Round($jTime,2))ms ($($jSpd)x) | C++: $([math]::Round($cTime,2))ms ($($cSpd)x)"
     }
 }
 

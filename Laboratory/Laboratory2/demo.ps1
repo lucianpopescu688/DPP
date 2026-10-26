@@ -14,7 +14,7 @@ $cppDir  = "$PWD\Laboratory2_C++"
 function Show-Header {
     Clear-Host
     Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "   DPP Laboratory 2 - In-Place Convolution O(n) Space Demo  " -ForegroundColor White
+    Write-Host "   DPP Laboratory 2 - In-Place Convolution (Barrier Sync)   " -ForegroundColor White
     Write-Host "============================================================" -ForegroundColor Cyan
 }
 
@@ -39,10 +39,10 @@ function Run-Verification($n, $m, $k, $p) {
 function Main-Menu {
     while ($true) {
         Show-Header
-        Write-Host "Select a test case to demonstrate:" -ForegroundColor White
-        Write-Host "  [1] Official TC1: N = M = 10, k = 3, p = 2 + Sequential (Shows output.txt)"
-        Write-Host "  [2] Official TC2: N = M = 1000, k = 3, p = 4 + Sequential"
-        Write-Host "  [3] Official TC3: N = M = 10000, k = 3, p = 8 + Sequential"
+        Write-Host "Select a test case to demonstrate in front of the assistant:" -ForegroundColor White
+        Write-Host "  [1] TC1: N = M = 10, k = 3, p = 2 (Live check + prints output.txt)"
+        Write-Host "  [2] TC2: N = M = 1000, k = 3, p = 4 (Medium matrix verification)"
+        Write-Host "  [3] TC3: N = M = 10000, k = 3, p = 8 (Large matrix stress test)"
         Write-Host "  [4] Exit"
         Write-Host "============================================================" -ForegroundColor Cyan
 

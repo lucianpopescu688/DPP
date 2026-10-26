@@ -1,480 +1,293 @@
 import java.io.*;
-import java.util.StringTokenizer;
+import java.util.*;
 import java.util.concurrent.CyclicBarrier;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Main {
 
-    @FunctionalInterface
-    interface TaskRunner {
-        void run() throws Exception;
-    }
+    // --- CONSTANTS ---
+    static final int[][] KERNEL = {
+        { 0, -1,  0},
+        {-1,  5, -1},
+        { 0, -1,  0}
+    };
 
-    // Holds both the image matrix F and the 3x3 convolution kernel C read from "date.txt"
-    static class InputData {
-        int[][] F;
-        int[][] C;
-        int n, m, k;
-    }
-
-    // Resolves file path from either the current directory or the parent directory
-    private static File resolveFile(String filename) {
+    // --- FILE I/O & UTILS ---
+    static int[][] readMatrix(String filename) {
         File f = new File(filename);
-        if (f.exists()) return f;
-        File parent = new File("..", filename);
-        return parent.exists() ? parent : f;
-    }
-
-    // Helper to read the next token across lines from a BufferedReader
-    private static String nextToken(BufferedReader br, StringTokenizer[] stHolder) throws IOException {
-        while (stHolder[0] == null || !stHolder[0].hasMoreTokens()) {
+        if (!f.exists()) {
+            File p = new File("..", filename);
+            if (p.exists()) f = p;
+        }
+        try (BufferedReader br = new BufferedReader(new FileReader(f))) {
             String line = br.readLine();
+            while (line != null && line.trim().isEmpty()) line = br.readLine();
             if (line == null) return null;
-            stHolder[0] = new StringTokenizer(line);
+
+            StringTokenizer st = new StringTokenizer(line);
+            int n = Integer.parseInt(st.nextToken());
+            int m = Integer.parseInt(st.nextToken());
+
+            int[][] matrix = new int[n][m];
+            for (int i = 0; i < n; i++) {
+                while (!st.hasMoreTokens()) {
+                    line = br.readLine();
+                    if (line == null) break;
+                    st = new StringTokenizer(line);
+                }
+                for (int j = 0; j < m; j++) {
+                    matrix[i][j] = Integer.parseInt(st.nextToken());
+                }
+            }
+            return matrix;
+        } catch (Exception e) {
+            return null;
         }
-        return stHolder[0].nextToken();
     }
 
-    // Reads matrix F (n x m) and kernel C (k x k) from "date.txt" (or fallback ConvolutionM.txt)
-    public static InputData readInputData(String dataFile, String kernelFallback) throws IOException {
-        InputData data = new InputData();
-        try (BufferedReader br = new BufferedReader(new FileReader(resolveFile(dataFile)))) {
-            StringTokenizer[] st = new StringTokenizer[1];
-            String tokN = nextToken(br, st);
-            String tokM = nextToken(br, st);
-            if (tokN == null || tokM == null) throw new IOException("Invalid header in " + dataFile);
-
-            data.n = Integer.parseInt(tokN);
-            data.m = Integer.parseInt(tokM);
-            data.F = new int[data.n][data.m];
-
-            for (int i = 0; i < data.n; i++) {
-                for (int j = 0; j < data.m; j++) {
-                    data.F[i][j] = Integer.parseInt(nextToken(br, st));
-                }
-            }
-
-            // Check if kernel C is also stored in date.txt
-            String tokK = nextToken(br, st);
-            if (tokK != null) {
-                data.k = Integer.parseInt(tokK);
-                // If the header line had "k k" instead of just "k", consume the second k on the same line
-                if (st[0] != null && st[0].hasMoreTokens()) {
-                    st[0].nextToken();
-                }
-                data.C = new int[data.k][data.k];
-                for (int i = 0; i < data.k; i++) {
-                    for (int j = 0; j < data.k; j++) {
-                        data.C[i][j] = Integer.parseInt(nextToken(br, st));
-                    }
-                }
-                return data;
-            }
-        }
-
-        // Fallback: read kernel from ConvolutionM.txt if not embedded in date.txt
-        File kFile = resolveFile(kernelFallback);
-        if (kFile.exists()) {
-            try (BufferedReader br = new BufferedReader(new FileReader(kFile))) {
-                StringTokenizer[] st = new StringTokenizer[1];
-                data.k = Integer.parseInt(nextToken(br, st));
-                if (st[0] != null && st[0].hasMoreTokens()) {
-                    st[0].nextToken();
-                }
-                data.C = new int[data.k][data.k];
-                for (int i = 0; i < data.k; i++) {
-                    for (int j = 0; j < data.k; j++) {
-                        data.C[i][j] = Integer.parseInt(nextToken(br, st));
-                    }
-                }
-                return data;
-            }
-        }
-
-        data.k = 3;
-        data.C = new int[][]{{0, -1, 0}, {-1, 5, -1}, {0, -1, 0}};
-        return data;
-    }
-
-    // Writes the 2D matrix directly to an output file
-    public static void writeMatrix(String filename, int[][] matrix) throws IOException {
+    static void writeMatrix(String filename, int[][] matrix) {
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(filename))) {
-            bw.write(matrix.length + " " + matrix[0].length + "\n");
-            for (int[] row : matrix) {
-                StringBuilder sb = new StringBuilder(row.length * 5);
-                for (int j = 0; j < row.length; j++) {
-                    sb.append(row[j]);
-                    if (j + 1 < row.length) sb.append(' ');
+            int n = matrix.length, m = matrix[0].length;
+            bw.write(n + " " + m + "\n");
+            for (int i = 0; i < n; i++) {
+                StringBuilder sb = new StringBuilder(m * 6);
+                for (int j = 0; j < m; j++) {
+                    sb.append(matrix[i][j]).append(j + 1 < m ? " " : "");
                 }
-                sb.append('\n');
                 bw.write(sb.toString());
+                bw.newLine();
             }
+        } catch (Exception e) {
+            System.err.println("Error writing " + filename);
         }
     }
 
-    // Verifies that two output files have identical content without allocating an extra matrix
-    public static boolean verifyFilesEqual(String fileA, String fileB) throws IOException {
-        try (BufferedReader brA = new BufferedReader(new FileReader(resolveFile(fileA)));
-             BufferedReader brB = new BufferedReader(new FileReader(resolveFile(fileB)))) {
-            String lineA, lineB;
-            while (true) {
-                lineA = brA.readLine();
-                lineB = brB.readLine();
-                if (lineA == null && lineB == null) return true;
-                if (lineA == null || lineB == null) return false;
-                if (!lineA.trim().equals(lineB.trim())) return false;
+    static boolean verifyFilesEqual(String file1, String file2) {
+        File f1 = new File(file1);
+        File f2 = new File(file2);
+        if (!f1.exists()) f1 = new File("..", file1);
+        if (!f2.exists()) f2 = new File("..", file2);
+        if (!f1.exists() || !f2.exists()) return false;
+
+        try (BufferedReader br1 = new BufferedReader(new FileReader(f1));
+             BufferedReader br2 = new BufferedReader(new FileReader(f2))) {
+            String l1, l2;
+            while ((l1 = br1.readLine()) != null) {
+                l2 = br2.readLine();
+                if (l2 == null || !l1.trim().equals(l2.trim())) return false;
             }
+            return br2.readLine() == null;
+        } catch (Exception e) {
+            return false;
         }
     }
 
-    // Computes the 3x3 convolution for a single row using 3 source row buffers
-    private static void computeRow3x3(int[] rowAbove, int[] rowCurr, int[] rowBelow,
-                                      int[] destRow, int[][] C, int m) {
-        int c00 = C[0][0], c01 = C[0][1], c02 = C[0][2];
-        int c10 = C[1][0], c11 = C[1][1], c12 = C[1][2];
-        int c20 = C[2][0], c21 = C[2][1], c22 = C[2][2];
+    // --- SEQUENTIAL CONVOLUTION (O(M) AUXILIARY SPACE) ---
+    static void sequentialConvolution(int N, int M, int[][] matrix) {
+        if (N < 3 || M < 3) return;
 
-        for (int j = 0; j < m; j++) {
-            int left  = (j > 0) ? (j - 1) : 0;
-            int right = (j + 1 < m) ? (j + 1) : (m - 1);
-            destRow[j] = rowAbove[left] * c00 + rowAbove[j] * c01 + rowAbove[right] * c02
-                       + rowCurr[left]  * c10 + rowCurr[j]  * c11 + rowCurr[right]  * c12
-                       + rowBelow[left] * c20 + rowBelow[j] * c21 + rowBelow[right] * c22;
-        }
-    }
+        int[] prevRow = Arrays.copyOf(matrix[0], M);
+        int[] currRow = Arrays.copyOf(matrix[1], M);
 
-    // Returns balanced [start, end) row bounds for partition 'id' out of 'parts'
-    private static int[] getChunk(int id, int total, int parts) {
-        int base = total / parts, rem = total % parts;
-        int start = id * base + Math.min(id, rem);
-        int end = start + base + (id < rem ? 1 : 0);
-        return new int[]{start, end};
-    }
+        for (int i = 1; i < N - 1; i++) {
+            int[] nextRow = matrix[i + 1];
+            int[] computedRow = new int[M];
 
-    // Starts all threads explicitly and waits for all of them to finish
-    private static void startAndJoin(Thread[] threads) throws InterruptedException {
-        for (Thread t : threads) t.start();
-        for (Thread t : threads) t.join();
-    }
+            for (int j = 1; j < M - 1; j++) {
+                computedRow[j] = 
+                    prevRow[j - 1] * KERNEL[0][0] + prevRow[j] * KERNEL[0][1] + prevRow[j + 1] * KERNEL[0][2] +
+                    currRow[j - 1] * KERNEL[1][0] + currRow[j] * KERNEL[1][1] + currRow[j + 1] * KERNEL[1][2] +
+                    nextRow[j - 1] * KERNEL[2][0] + nextRow[j] * KERNEL[2][1] + nextRow[j + 1] * KERNEL[2][2];
+            }
+            computedRow[0] = currRow[0];
+            computedRow[M - 1] = currRow[M - 1];
 
-    // 1. Sequential In-Place Convolution — O(M) auxiliary space (2 row vectors)
-    public static void sequentialInPlace(int[][] F, int[][] C, int n, int m) {
-        int[] prevRow = new int[m];
-        int[] currRow = new int[m];
+            // In-place row assignment
+            matrix[i] = computedRow;
 
-        System.arraycopy(F[0], 0, prevRow, 0, m);
-
-        for (int i = 0; i < n; i++) {
-            System.arraycopy(F[i], 0, currRow, 0, m);
-            int[] below = (i + 1 < n) ? F[i + 1] : currRow;
-            computeRow3x3(prevRow, currRow, below, F[i], C, m);
-
-            int[] tmp = prevRow;
+            // Shift forward
             prevRow = currRow;
-            currRow = tmp;
+            currRow = Arrays.copyOf(nextRow, M);
         }
     }
 
-    // 2. Variant 1b: Copy Neighbor Boundaries + CyclicBarrier (3M ints/thread)
-    public static void parallelVariant1b(int[][] F, int[][] C, int n, int m, int p) throws InterruptedException {
-        int activeP = Math.min(p, n);
-        CyclicBarrier barrier = new CyclicBarrier(activeP);
-        Thread[] threads = new Thread[activeP];
+    // --- PARALLEL WORKER (VARIANT 2B - BARRIER + DELAYED BOUNDARY WRITE) ---
+    static class ParallelWorker implements Runnable {
+        int id, P, N, M;
+        int[][] matrix;
+        CyclicBarrier barrier;
 
-        for (int id = 0; id < activeP; id++) {
-            int[] chunk = getChunk(id, n, activeP);
-            int r0 = chunk[0], r1 = chunk[1];
-            threads[id] = new Thread(() -> {
-                try {
-                    int[] prevRow        = new int[m];
-                    int[] currRow        = new int[m];
-                    int[] bottomBoundary = new int[m];
-
-                    // Step 1: Copy required neighbor boundaries into auxiliary vectors
-                    int topIdx = (r0 > 0) ? (r0 - 1) : 0;
-                    int botIdx = (r1 < n) ? r1 : (n - 1);
-                    System.arraycopy(F[topIdx], 0, prevRow, 0, m);
-                    System.arraycopy(F[botIdx], 0, bottomBoundary, 0, m);
-
-                    // Step 2: Synchronization barrier
-                    barrier.await();
-
-                    // Step 3: Update assigned rows in-place using auxiliary vectors
-                    for (int i = r0; i < r1; i++) {
-                        System.arraycopy(F[i], 0, currRow, 0, m);
-                        int[] below = (i + 1 < r1) ? F[i + 1] : bottomBoundary;
-                        computeRow3x3(prevRow, currRow, below, F[i], C, m);
-
-                        int[] tmp = prevRow;
-                        prevRow = currRow;
-                        currRow = tmp;
-                    }
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            });
-        }
-        startAndJoin(threads);
-    }
-
-    // 3. Variant 1f: Copy Neighbor Boundaries + Fine-Grained Atomic Flags (3M ints/thread)
-    public static void parallelVariant1f(int[][] F, int[][] C, int n, int m, int p) throws InterruptedException {
-        int activeP = Math.min(p, n);
-        AtomicBoolean[] topReady = new AtomicBoolean[activeP];
-        AtomicBoolean[] botReady = new AtomicBoolean[activeP];
-        for (int i = 0; i < activeP; i++) {
-            topReady[i] = new AtomicBoolean(false);
-            botReady[i] = new AtomicBoolean(false);
+        public ParallelWorker(int id, int P, int N, int M, int[][] matrix, CyclicBarrier barrier) {
+            this.id = id; this.P = P; this.N = N; this.M = M;
+            this.matrix = matrix; this.barrier = barrier;
         }
 
-        Thread[] threads = new Thread[activeP];
-        for (int id = 0; id < activeP; id++) {
-            int threadId = id;
-            int[] chunk = getChunk(id, n, activeP);
-            int r0 = chunk[0], r1 = chunk[1];
-            threads[id] = new Thread(() -> {
-                int[] prevRow        = new int[m];
-                int[] currRow        = new int[m];
-                int[] bottomBoundary = new int[m];
+        @Override
+        public void run() {
+            int innerRows = N - 2;
+            int startRow = 1 + id * innerRows / P;
+            int endRow   = 1 + (id + 1) * innerRows / P;
+            if (id == P - 1) endRow = N - 1;
 
-                // Step 1 & 2: Copy neighbor boundaries and signal atomic flags
-                int topIdx = (r0 > 0) ? (r0 - 1) : 0;
-                System.arraycopy(F[topIdx], 0, prevRow, 0, m);
-                topReady[threadId].set(true);
-
-                int botIdx = (r1 < n) ? r1 : (n - 1);
-                System.arraycopy(F[botIdx], 0, bottomBoundary, 0, m);
-                botReady[threadId].set(true);
-
-                // Step 3: Wait until immediate neighbor flags are true
-                if (threadId > 0) {
-                    while (!botReady[threadId - 1].get()) {
-                        Thread.onSpinWait();
-                    }
-                }
-                if (threadId + 1 < activeP) {
-                    while (!topReady[threadId + 1].get()) {
-                        Thread.onSpinWait();
-                    }
-                }
-
-                // Step 4: Update assigned rows in-place
-                for (int i = r0; i < r1; i++) {
-                    System.arraycopy(F[i], 0, currRow, 0, m);
-                    int[] below = (i + 1 < r1) ? F[i + 1] : bottomBoundary;
-                    computeRow3x3(prevRow, currRow, below, F[i], C, m);
-
-                    int[] tmp = prevRow;
-                    prevRow = currRow;
-                    currRow = tmp;
-                }
-            });
-        }
-        startAndJoin(threads);
-    }
-
-    // 4. Variant 2b: Compute Boundary New Values to Vectors, Interior In-Place + CyclicBarrier (3M ints/thread)
-    public static void parallelVariant2b(int[][] F, int[][] C, int n, int m, int p) throws InterruptedException {
-        int activeP = Math.min(p, n);
-        CyclicBarrier barrier = new CyclicBarrier(activeP);
-        Thread[] threads = new Thread[activeP];
-
-        for (int id = 0; id < activeP; id++) {
-            int[] chunk = getChunk(id, n, activeP);
-            int r0 = chunk[0], r1 = chunk[1];
-            threads[id] = new Thread(() -> {
-                try {
-                    int[] newFirstRow = new int[m];
-                    int[] prevRow     = new int[m];
-                    int[] currRow     = new int[m]; // Reused as newLastRow after interior loop
-
-                    // Step 1a: Compute new values for top boundary row r0 into newFirstRow
-                    int[] topAbove = (r0 > 0) ? F[r0 - 1] : F[0];
-                    int[] topBelow = (r0 + 1 < n) ? F[r0 + 1] : F[r0];
-                    computeRow3x3(topAbove, F[r0], topBelow, newFirstRow, C, m);
-
-                    if (r1 - 1 > r0) {
-                        // Step 1b: Compute interior rows [r0 + 1, r1 - 2] directly into matrix F
-                        System.arraycopy(F[r0], 0, prevRow, 0, m);
-                        for (int i = r0 + 1; i <= r1 - 2; i++) {
-                            System.arraycopy(F[i], 0, currRow, 0, m);
-                            computeRow3x3(prevRow, currRow, F[i + 1], F[i], C, m);
-
-                            int[] tmp = prevRow;
-                            prevRow = currRow;
-                            currRow = tmp;
-                        }
-
-                        // Step 1c: Compute bottom boundary row (r1 - 1) into currRow (newLastRow)
-                        int last = r1 - 1;
-                        int[] botBelow = (r1 < n) ? F[r1] : F[last];
-                        computeRow3x3(prevRow, F[last], botBelow, currRow, C, m);
-                    }
-
-                    // Step 2: Synchronization barrier
-                    barrier.await();
-
-                    // Step 3: Copy computed boundary vectors into matrix F
-                    System.arraycopy(newFirstRow, 0, F[r0], 0, m);
-                    if (r1 - 1 > r0) {
-                        System.arraycopy(currRow, 0, F[r1 - 1], 0, m);
-                    }
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            });
-        }
-        startAndJoin(threads);
-    }
-
-    // 5. Variant 2f: Compute Boundary New Values First + Atomic Flags + Interior In-Place (4M ints/thread)
-    public static void parallelVariant2f(int[][] F, int[][] C, int n, int m, int p) throws InterruptedException {
-        int activeP = Math.min(p, n);
-        AtomicBoolean[] topDone = new AtomicBoolean[activeP];
-        AtomicBoolean[] botDone = new AtomicBoolean[activeP];
-        for (int i = 0; i < activeP; i++) {
-            topDone[i] = new AtomicBoolean(false);
-            botDone[i] = new AtomicBoolean(false);
-        }
-
-        Thread[] threads = new Thread[activeP];
-        for (int id = 0; id < activeP; id++) {
-            int threadId = id;
-            int[] chunk = getChunk(id, n, activeP);
-            int r0 = chunk[0], r1 = chunk[1];
-            threads[id] = new Thread(() -> {
-                int[] newFirstRow = new int[m];
-                int[] newLastRow  = (r1 - 1 > r0) ? new int[m] : null;
-                int[] prevRow     = new int[m];
-                int[] currRow     = new int[m];
-
-                // Step 1 & 2: Compute boundary rows into separate vectors and set flags
-                int[] topAbove = (r0 > 0) ? F[r0 - 1] : F[0];
-                int[] topBelow = (r0 + 1 < n) ? F[r0 + 1] : F[r0];
-                computeRow3x3(topAbove, F[r0], topBelow, newFirstRow, C, m);
-                topDone[threadId].set(true);
-
-                if (r1 - 1 > r0) {
-                    int last = r1 - 1;
-                    int[] botAbove = F[last - 1];
-                    int[] botBelow = (r1 < n) ? F[r1] : F[last];
-                    computeRow3x3(botAbove, F[last], botBelow, newLastRow, C, m);
-                }
-                botDone[threadId].set(true);
-
-                // Step 3: Compute interior rows [r0 + 1, r1 - 2] directly into matrix F
-                if (r1 - r0 > 2) {
-                    System.arraycopy(F[r0], 0, prevRow, 0, m);
-                    for (int i = r0 + 1; i <= r1 - 2; i++) {
-                        System.arraycopy(F[i], 0, currRow, 0, m);
-                        computeRow3x3(prevRow, currRow, F[i + 1], F[i], C, m);
-
-                        int[] tmp = prevRow;
-                        prevRow = currRow;
-                        currRow = tmp;
-                    }
-                }
-
-                // Step 4 & 5: Check neighbor flags and copy boundary vectors into matrix F
-                if (threadId > 0) {
-                    while (!botDone[threadId - 1].get()) {
-                        Thread.onSpinWait();
-                    }
-                }
-                System.arraycopy(newFirstRow, 0, F[r0], 0, m);
-
-                if (r1 - 1 > r0) {
-                    if (threadId + 1 < activeP) {
-                        while (!topDone[threadId + 1].get()) {
-                            Thread.onSpinWait();
-                        }
-                    }
-                    System.arraycopy(newLastRow, 0, F[r1 - 1], 0, m);
-                }
-            });
-        }
-        startAndJoin(threads);
-    }
-
-    // Measures the execution time of a task in milliseconds
-    private static double measureMs(TaskRunner task) throws Exception {
-        long t0 = System.nanoTime();
-        task.run();
-        return (System.nanoTime() - t0) / 1e6;
-    }
-
-    public static void main(String[] args) throws Exception {
-        String mode = args.length > 0 ? args[0].toLowerCase() : "all";
-        int p = args.length > 1 ? Integer.parseInt(args[1]) : 4;
-        String dataFile = args.length > 2 ? args[2] : "date.txt";
-        String kernelFile = args.length > 3 ? args[3] : "ConvolutionM.txt";
-
-        InputData data = readInputData(dataFile, kernelFile);
-
-        if (mode.equals("all") || mode.equals("verify")) {
-            System.out.printf("Matrix F: %d x %d | Kernel C: %d x %d | Threads p = %d (In-Place O(m) Aux Space)%n",
-                    data.n, data.m, data.k, data.k, p);
-            System.out.println("------------------------------------------------------------------");
-
-            double msSeq = measureMs(() -> sequentialInPlace(data.F, data.C, data.n, data.m));
-            System.out.printf("[Sequential]           Execution Time: %.4f ms%n", msSeq);
-            writeMatrix("output.txt", data.F);
-            writeMatrix("output_seq.txt", data.F);
-
-            String[] labels = {
-                "[Variant 1b (Barrier)]",
-                "[Variant 1f (Flags)  ]",
-                "[Variant 2b (Barrier)]",
-                "[Variant 2f (Flags)  ]"
-            };
-            String[] modes = {"1b", "1f", "2b", "2f"};
-
-            for (int i = 0; i < labels.length; i++) {
-                InputData fresh = readInputData(dataFile, kernelFile);
-                String mMode = modes[i];
-                double ms = measureMs(() -> {
-                    switch (mMode) {
-                        case "1b" -> parallelVariant1b(fresh.F, fresh.C, fresh.n, fresh.m, p);
-                        case "1f" -> parallelVariant1f(fresh.F, fresh.C, fresh.n, fresh.m, p);
-                        case "2b" -> parallelVariant2b(fresh.F, fresh.C, fresh.n, fresh.m, p);
-                        case "2f" -> parallelVariant2f(fresh.F, fresh.C, fresh.n, fresh.m, p);
-                    }
-                });
-                writeMatrix("output.txt", fresh.F);
-                boolean ok = verifyFilesEqual("output_seq.txt", "output.txt");
-                System.out.printf("%s Execution Time: %.4f ms | Match: %b | Speedup: %.2fx%n",
-                        labels[i], ms, ok, msSeq / ms);
+            if (startRow >= endRow) {
+                try { barrier.await(); } catch (Exception e) {}
+                return;
             }
-            System.out.println("------------------------------------------------------------------");
-            System.out.println("Output matrix saved to output.txt");
+
+            // Strictly O(M) auxiliary space per thread
+            int[] prevRow   = new int[M];
+            int[] currRow   = new int[M];
+            int[] newTop    = new int[M];
+            int[] newBottom = new int[M];
+
+            if (startRow > 0) System.arraycopy(matrix[startRow - 1], 0, prevRow, 0, M);
+            System.arraycopy(matrix[startRow], 0, currRow, 0, M);
+
+            // PHASE 1: COMPUTE
+            for (int i = startRow; i < endRow; i++) {
+                int[] nextRow = new int[M];
+                if (i + 1 < N) System.arraycopy(matrix[i + 1], 0, nextRow, 0, M);
+
+                int[] computedRow = new int[M];
+                for (int j = 1; j < M - 1; j++) {
+                    computedRow[j] = 
+                        prevRow[j - 1] * KERNEL[0][0] + prevRow[j] * KERNEL[0][1] + prevRow[j + 1] * KERNEL[0][2] +
+                        currRow[j - 1] * KERNEL[1][0] + currRow[j] * KERNEL[1][1] + currRow[j + 1] * KERNEL[1][2] +
+                        nextRow[j - 1] * KERNEL[2][0] + nextRow[j] * KERNEL[2][1] + nextRow[j + 1] * KERNEL[2][2];
+                }
+                computedRow[0] = currRow[0];
+                computedRow[M - 1] = currRow[M - 1];
+
+                boolean isTopBoundary    = (i == startRow && id > 0);
+                boolean isBottomBoundary = (i == endRow - 1 && id < P - 1);
+
+                if (isTopBoundary && isBottomBoundary) {
+                    System.arraycopy(computedRow, 0, newTop, 0, M);
+                } else if (isTopBoundary) {
+                    System.arraycopy(computedRow, 0, newTop, 0, M);
+                } else if (isBottomBoundary) {
+                    System.arraycopy(computedRow, 0, newBottom, 0, M);
+                } else {
+                    matrix[i] = computedRow; // Internal rows written directly
+                }
+
+                prevRow = currRow;
+                currRow = nextRow;
+            }
+
+            // PHASE 2: SYNCHRONIZATION BARRIER
+            try { barrier.await(); } catch (Exception e) { e.printStackTrace(); }
+
+            // PHASE 3: WRITE BOUNDARIES INTO MATRIX
+            boolean isTopBoundary    = (id > 0);
+            boolean isBottomBoundary = (id < P - 1);
+
+            if (isTopBoundary && isBottomBoundary && (endRow - startRow == 1)) {
+                matrix[startRow] = newTop;
+            } else {
+                if (isTopBoundary) matrix[startRow] = newTop;
+                if (isBottomBoundary) matrix[endRow - 1] = newBottom;
+            }
+        }
+    }
+
+    // Parallel in-place convolution coordinator
+    static void parallelConvolution(int N, int M, int[][] matrix, int P) {
+        if (N < 3 || M < 3) return;
+        int activeP = Math.min(P, N - 2);
+        if (activeP <= 1) {
+            sequentialConvolution(N, M, matrix);
             return;
         }
 
-        double durationMs = measureMs(() -> {
-            switch (mode) {
-                case "sequential" -> sequentialInPlace(data.F, data.C, data.n, data.m);
-                case "1b", "variant1b", "horizontal" -> parallelVariant1b(data.F, data.C, data.n, data.m, p);
-                case "1f", "variant1f" -> parallelVariant1f(data.F, data.C, data.n, data.m, p);
-                case "2b", "variant2b" -> parallelVariant2b(data.F, data.C, data.n, data.m, p);
-                case "2f", "variant2f" -> parallelVariant2f(data.F, data.C, data.n, data.m, p);
-                default -> throw new IllegalArgumentException("Unknown mode: " + mode);
-            }
-        });
+        CyclicBarrier barrier = new CyclicBarrier(activeP);
+        Thread[] threads = new Thread[activeP];
+        for (int i = 0; i < activeP; i++) {
+            threads[i] = new Thread(new ParallelWorker(i, activeP, N, M, matrix, barrier));
+            threads[i].start();
+        }
+        for (int i = 0; i < activeP; i++) {
+            try { threads[i].join(); } catch (InterruptedException e) {}
+        }
+    }
 
-        writeMatrix("output.txt", data.F);
-        if (mode.equals("sequential")) {
-            writeMatrix("output_seq.txt", data.F);
+    // --- MAIN ENTRY ---
+    public static void main(String[] args) {
+        String mode = "all";
+        int P = 4;
+        String filename = "date.txt";
+
+        // Syntax 1: java Main <threads> [date.txt]
+        // Syntax 2: java Main <mode> <threads> [date.txt]
+        if (args.length >= 1) {
+            String arg0 = args[0];
+            if (Character.isDigit(arg0.charAt(0))) {
+                P = Integer.parseInt(arg0);
+                mode = (P == 1) ? "sequential" : "parallel";
+                if (args.length >= 2) filename = args[1];
+            } else {
+                mode = arg0.toLowerCase();
+                if (args.length >= 2) P = Integer.parseInt(args[1]);
+                if (args.length >= 3) filename = args[2];
+            }
         }
 
-        // Verify correctness against the sequential baseline file
-        File seqFile = resolveFile("output_seq.txt");
+        int[][] matrix = readMatrix(filename);
+        if (matrix == null) {
+            System.err.println("Error: Could not read " + filename);
+            return;
+        }
+        int N = matrix.length, M = matrix[0].length;
+
+        // MODE: all / verify (For live demonstration to the lab assistant)
+        if (mode.equals("all") || mode.equals("verify")) {
+            System.out.printf("Matrix: %d x %d | Kernel: 3 x 3 | Threads: %d (In-Place O(M) Aux Space)%n", N, M, P);
+            System.out.println("--------------------------------------------------");
+
+            // 1. Sequential run
+            long t0 = System.nanoTime();
+            sequentialConvolution(N, M, matrix);
+            double msSeq = (System.nanoTime() - t0) / 1e6;
+            System.out.printf("[Sequential]          Time: %.4f ms%n", msSeq);
+            writeMatrix("output_seq.txt", matrix);
+            writeMatrix("output.txt", matrix);
+
+            // 2. Re-read original matrix and run Parallel
+            matrix = readMatrix(filename);
+            t0 = System.nanoTime();
+            parallelConvolution(N, M, matrix, P);
+            double msPar = (System.nanoTime() - t0) / 1e6;
+            writeMatrix("output.txt", matrix);
+
+            boolean match = verifyFilesEqual("output_seq.txt", "output.txt");
+            double speedup = (msPar > 0) ? (msSeq / msPar) : 1.0;
+            System.out.printf("[Parallel (Barrier)]  Time: %.4f ms | Match: %b | Speedup: %.2fx%n", msPar, match, speedup);
+            System.out.println("--------------------------------------------------");
+            System.out.println("Output saved to output.txt");
+            return;
+        }
+
+        // MODE: Single execution (Used by automated benchmark script run_benchmark.ps1)
+        long t0 = System.nanoTime();
+        if (mode.equals("sequential") || P == 1) {
+            sequentialConvolution(N, M, matrix);
+        } else {
+            parallelConvolution(N, M, matrix, P);
+        }
+        double durationMs = (System.nanoTime() - t0) / 1e6;
+
+        writeMatrix("output.txt", matrix);
+        if (mode.equals("sequential") || P == 1) {
+            writeMatrix("output_seq.txt", matrix);
+        }
+
+        File seqFile = new File("output_seq.txt");
         if (seqFile.exists()) {
-            if (!verifyFilesEqual(seqFile.getPath(), "output.txt")) {
-                System.err.println("CORRECTNESS ERROR: Result does not match sequential baseline!");
+            if (!verifyFilesEqual("output_seq.txt", "output.txt")) {
+                System.err.println("CORRECTNESS ERROR: Result does not match output_seq.txt!");
                 System.exit(1);
             }
         }
 
-        System.out.printf("%.4f%n", durationMs);
+        System.out.printf(Locale.US, "%.4f%n", durationMs);
     }
 }
