@@ -8,13 +8,6 @@
 #include <algorithm>
 #include <format>
 
-// 3x3 convolution kernel (dynamically loaded from ConvolutionM.txt if present)
-int KERNEL[3][3] = {
-    { 0, -1,  0},
-    {-1,  5, -1},
-    { 0, -1,  0}
-};
-
 // --- MEMORY MANAGEMENT ---
 int** allocate_matrix(int N, int M) {
     auto** matrix = new int*[N];
@@ -58,21 +51,6 @@ int** read_matrix(const std::string& filename, int& N, int& M) {
     return matrix;
 }
 
-void load_kernel(const std::string& filename = "ConvolutionM.txt") {
-    int k_rows = 0, k_cols = 0;
-    auto** k_mat = read_matrix(filename, k_rows, k_cols);
-    if (k_mat) {
-        if (k_rows >= 3 && k_cols >= 3) {
-            for (int i = 0; i < 3; i++) {
-                for (int j = 0; j < 3; j++) {
-                    KERNEL[i][j] = k_mat[i][j];
-                }
-            }
-        }
-        free_matrix(k_mat, k_rows);
-    }
-}
-
 void write_matrix(const std::string& filename, int** matrix, int N, int M) {
     std::ofstream fout(filename);
     fout << N << ' ' << M << '\n';
@@ -103,14 +81,14 @@ bool verify_files_equal(const std::string& file1, const std::string& file2) {
 }
 
 // --- CONVOLUTION HELPER ---
-inline int apply_kernel(const int* prev, const int* curr, const int* next, int j) {
-    return prev[j - 1] * KERNEL[0][0] + prev[j] * KERNEL[0][1] + prev[j + 1] * KERNEL[0][2] +
-           curr[j - 1] * KERNEL[1][0] + curr[j] * KERNEL[1][1] + curr[j + 1] * KERNEL[1][2] +
-           next[j - 1] * KERNEL[2][0] + next[j] * KERNEL[2][1] + next[j + 1] * KERNEL[2][2];
+inline int apply_kernel(const int* prev, const int* curr, const int* next, int j, int** kernel) {
+    return prev[j - 1] * kernel[0][0] + prev[j] * kernel[0][1] + prev[j + 1] * kernel[0][2] +
+           curr[j - 1] * kernel[1][0] + curr[j] * kernel[1][1] + curr[j + 1] * kernel[1][2] +
+           next[j - 1] * kernel[2][0] + next[j] * kernel[2][1] + next[j + 1] * kernel[2][2];
 }
 
 // --- SEQUENTIAL IN-PLACE CONVOLUTION (O(M) AUXILIARY SPACE) ---
-void sequential_convolution(int N, int M, int** matrix) {
+void sequential_convolution(int N, int M, int** matrix, int** kernel) {
     if (N < 3 || M < 3) return;
 
     auto* prev = new int[M];
@@ -123,7 +101,7 @@ void sequential_convolution(int N, int M, int** matrix) {
     for (int i = 1; i < N - 1; i++) {
         const int* next = matrix[i + 1];
         for (int j = 1; j < M - 1; j++) {
-            comp[j] = apply_kernel(prev, curr, next, j);
+            comp[j] = apply_kernel(prev, curr, next, j, kernel);
         }
         comp[0] = curr[0];
         comp[M - 1] = curr[M - 1];
@@ -140,7 +118,7 @@ void sequential_convolution(int N, int M, int** matrix) {
 }
 
 // --- PARALLEL WORKER (VARIANT 2B - BARRIER + DELAYED BOUNDARY WRITE) ---
-void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& sync_barrier) {
+void parallel_worker(int id, int P, int N, int M, int** matrix, int** kernel, std::barrier<>& sync_barrier) {
     int inner_rows = N - 2;
     int start_row  = 1 + id * inner_rows / P;
     int end_row    = (id == P - 1) ? N - 1 : 1 + (id + 1) * inner_rows / P;
@@ -165,7 +143,7 @@ void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& 
         const int* next = (i + 1 < N) ? matrix[i + 1] : nullptr;
 
         for (int j = 1; j < M - 1; j++) {
-            comp[j] = apply_kernel(prev, curr, next, j);
+            comp[j] = apply_kernel(prev, curr, next, j, kernel);
         }
         comp[0] = curr[0];
         comp[M - 1] = curr[M - 1];
@@ -204,11 +182,11 @@ void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& 
 }
 
 // Parallel in-place convolution coordinator
-void parallel_convolution(int N, int M, int** matrix, int P) {
+void parallel_convolution(int N, int M, int** matrix, int** kernel, int P) {
     if (N < 3 || M < 3) return;
     int activeP = std::min(P, N - 2);
     if (activeP <= 1) {
-        sequential_convolution(N, M, matrix);
+        sequential_convolution(N, M, matrix, kernel);
         return;
     }
 
@@ -216,7 +194,7 @@ void parallel_convolution(int N, int M, int** matrix, int P) {
     std::vector<std::jthread> threads;
     threads.reserve(activeP);
     for (int i = 0; i < activeP; i++) {
-        threads.emplace_back(parallel_worker, i, activeP, N, M, matrix, std::ref(sync_barrier));
+        threads.emplace_back(parallel_worker, i, activeP, N, M, matrix, kernel, std::ref(sync_barrier));
     }
     // std::jthread auto-joins upon destruction
 }
@@ -250,8 +228,6 @@ int main(int argc, char** argv) {
     }
     if (P == 1 && mode != "all") mode = "sequential";
 
-    load_kernel(kernel_file);
-
     int N = 0, M = 0;
     auto** matrix = read_matrix(filename, N, M);
     if (!matrix) {
@@ -259,13 +235,21 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    int K = 0, K_cols = 0;
+    auto** kernel = read_matrix(kernel_file, K, K_cols);
+    if (!kernel) {
+        std::cerr << std::format("Error: Could not read {}\n", kernel_file);
+        free_matrix(matrix, N);
+        return 1;
+    }
+
     // MODE: all / verify (For live demonstration to the lab assistant)
     if (mode == "all" || mode == "verify") {
-        std::cout << "Matrix F: " << N << " x " << M << " | Kernel C: 3 x 3 | Threads p = " << P << "\n"
+        std::cout << "Matrix F: " << N << " x " << M << " | Kernel C: " << K << " x " << K_cols << " | Threads p = " << P << "\n"
                   << "--------------------------------------------------\n";
 
         // 1. Sequential run
-        double msSeq = measure_ms([&]() { sequential_convolution(N, M, matrix); });
+        double msSeq = measure_ms([&]() { sequential_convolution(N, M, matrix, kernel); });
         std::cout << std::format("[Sequential] Execution Time: {:.4f} ms\n", msSeq);
         write_matrix("output_seq.txt", matrix, N, M);
         write_matrix("output.txt", matrix, N, M);
@@ -273,7 +257,7 @@ int main(int argc, char** argv) {
 
         // 2. Parallel run
         matrix = read_matrix(filename, N, M);
-        double msPar = measure_ms([&]() { parallel_convolution(N, M, matrix, P); });
+        double msPar = measure_ms([&]() { parallel_convolution(N, M, matrix, kernel, P); });
         write_matrix("output.txt", matrix, N, M);
 
         bool match = verify_files_equal("output_seq.txt", "output.txt");
@@ -284,15 +268,16 @@ int main(int argc, char** argv) {
                   << "Output matrix saved to output.txt\n";
 
         free_matrix(matrix, N);
+        free_matrix(kernel, K);
         return 0;
     }
 
     // MODE: Single execution (Used by automated benchmark script)
     double duration = measure_ms([&]() {
         if (mode == "sequential" || P == 1) {
-            sequential_convolution(N, M, matrix);
+            sequential_convolution(N, M, matrix, kernel);
         } else {
-            parallel_convolution(N, M, matrix, P);
+            parallel_convolution(N, M, matrix, kernel, P);
         }
     });
 
@@ -305,10 +290,12 @@ int main(int argc, char** argv) {
     if (std::ifstream(seq_file).good() && !verify_files_equal(seq_file, "output.txt")) {
         std::cerr << "CORRECTNESS ERROR: Result does not match output_seq.txt!\n";
         free_matrix(matrix, N);
+        free_matrix(kernel, K);
         return 1;
     }
 
     std::cout << std::format("{:.4f}\n", duration);
     free_matrix(matrix, N);
+    free_matrix(kernel, K);
     return 0;
 }

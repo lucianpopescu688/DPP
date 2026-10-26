@@ -4,21 +4,6 @@ import java.util.concurrent.CyclicBarrier;
 
 public class Main {
 
-    // --- CONSTANTS ---
-    // 3x3 convolution kernel (dynamically loaded from ConvolutionM.txt if present)
-    private static int[][] KERNEL = {
-        { 0, -1,  0},
-        {-1,  5, -1},
-        { 0, -1,  0}
-    };
-
-    static void loadKernel(String filename) {
-        int[][] kMat = readMatrix(filename);
-        if (kMat != null && kMat.length >= 3 && kMat[0].length >= 3) {
-            KERNEL = kMat;
-        }
-    }
-
     // --- FILE I/O ---
     static int[][] readMatrix(String filename) {
         File f = new File(filename);
@@ -89,14 +74,14 @@ public class Main {
     }
 
     // --- CONVOLUTION HELPER ---
-    static int applyKernel(int[] prev, int[] curr, int[] next, int j) {
-        return prev[j - 1] * KERNEL[0][0] + prev[j] * KERNEL[0][1] + prev[j + 1] * KERNEL[0][2] +
-               curr[j - 1] * KERNEL[1][0] + curr[j] * KERNEL[1][1] + curr[j + 1] * KERNEL[1][2] +
-               next[j - 1] * KERNEL[2][0] + next[j] * KERNEL[2][1] + next[j + 1] * KERNEL[2][2];
+    static int applyKernel(int[] prev, int[] curr, int[] next, int j, int[][] kernel) {
+        return prev[j - 1] * kernel[0][0] + prev[j] * kernel[0][1] + prev[j + 1] * kernel[0][2] +
+               curr[j - 1] * kernel[1][0] + curr[j] * kernel[1][1] + curr[j + 1] * kernel[1][2] +
+               next[j - 1] * kernel[2][0] + next[j] * kernel[2][1] + next[j + 1] * kernel[2][2];
     }
 
     // --- SEQUENTIAL IN-PLACE CONVOLUTION (O(M) AUXILIARY SPACE) ---
-    static void sequentialConvolution(int N, int M, int[][] matrix) {
+    static void sequentialConvolution(int N, int M, int[][] matrix, int[][] kernel) {
         if (N < 3 || M < 3) return;
 
         int[] prev = Arrays.copyOf(matrix[0], M);
@@ -106,7 +91,7 @@ public class Main {
         for (int i = 1; i < N - 1; i++) {
             int[] next = matrix[i + 1];
             for (int j = 1; j < M - 1; j++) {
-                comp[j] = applyKernel(prev, curr, next, j);
+                comp[j] = applyKernel(prev, curr, next, j, kernel);
             }
             comp[0] = curr[0];
             comp[M - 1] = curr[M - 1];
@@ -121,12 +106,12 @@ public class Main {
     // --- PARALLEL WORKER (VARIANT 2B - BARRIER + DELAYED BOUNDARY WRITE) ---
     static class ParallelWorker implements Runnable {
         private final int id, P, N, M;
-        private final int[][] matrix;
+        private final int[][] matrix, kernel;
         private final CyclicBarrier barrier;
 
-        ParallelWorker(int id, int P, int N, int M, int[][] matrix, CyclicBarrier barrier) {
+        ParallelWorker(int id, int P, int N, int M, int[][] matrix, int[][] kernel, CyclicBarrier barrier) {
             this.id = id; this.P = P; this.N = N; this.M = M;
-            this.matrix = matrix; this.barrier = barrier;
+            this.matrix = matrix; this.kernel = kernel; this.barrier = barrier;
         }
 
         @Override
@@ -155,7 +140,7 @@ public class Main {
                 int[] next = (i + 1 < N) ? matrix[i + 1] : null;
 
                 for (int j = 1; j < M - 1; j++) {
-                    comp[j] = applyKernel(prev, curr, next, j);
+                    comp[j] = applyKernel(prev, curr, next, j, kernel);
                 }
                 comp[0] = curr[0];
                 comp[M - 1] = curr[M - 1];
@@ -189,18 +174,18 @@ public class Main {
     }
 
     // Parallel in-place convolution coordinator
-    static void parallelConvolution(int N, int M, int[][] matrix, int P) {
+    static void parallelConvolution(int N, int M, int[][] matrix, int[][] kernel, int P) {
         if (N < 3 || M < 3) return;
         int activeP = Math.min(P, N - 2);
         if (activeP <= 1) {
-            sequentialConvolution(N, M, matrix);
+            sequentialConvolution(N, M, matrix, kernel);
             return;
         }
 
         CyclicBarrier barrier = new CyclicBarrier(activeP);
         Thread[] threads = new Thread[activeP];
         for (int i = 0; i < activeP; i++) {
-            threads[i] = new Thread(new ParallelWorker(i, activeP, N, M, matrix, barrier));
+            threads[i] = new Thread(new ParallelWorker(i, activeP, N, M, matrix, kernel, barrier));
             threads[i].start();
         }
         for (int i = 0; i < activeP; i++) {
@@ -224,23 +209,29 @@ public class Main {
         }
         if (P == 1 && !mode.equals("all")) mode = "sequential";
 
-        loadKernel(kernelFile);
-
         int[][] matrix = readMatrix(filename);
         if (matrix == null) {
             System.err.println("Error: Could not read " + filename);
             return;
         }
+
+        int[][] kernel = readMatrix(kernelFile);
+        if (kernel == null) {
+            System.err.println("Error: Could not read " + kernelFile);
+            return;
+        }
+
         int N = matrix.length, M = matrix[0].length;
+        int K = kernel.length, K_cols = kernel[0].length;
 
         // MODE: all / verify (For live demonstration to the lab assistant)
         if (mode.equals("all") || mode.equals("verify")) {
-            System.out.printf("Matrix F: %d x %d | Kernel C: 3 x 3 | Threads p = %d%n", N, M, P);
+            System.out.printf("Matrix F: %d x %d | Kernel C: %d x %d | Threads p = %d%n", N, M, K, K_cols, P);
             System.out.println("--------------------------------------------------");
 
             // 1. Sequential run
             long t0 = System.nanoTime();
-            sequentialConvolution(N, M, matrix);
+            sequentialConvolution(N, M, matrix, kernel);
             double msSeq = (System.nanoTime() - t0) / 1e6;
             System.out.printf(Locale.US, "[Sequential] Execution Time: %.4f ms%n", msSeq);
             writeMatrix("output_seq.txt", matrix);
@@ -249,7 +240,7 @@ public class Main {
             // 2. Parallel run
             matrix = readMatrix(filename);
             t0 = System.nanoTime();
-            parallelConvolution(N, M, matrix, P);
+            parallelConvolution(N, M, matrix, kernel, P);
             double msPar = (System.nanoTime() - t0) / 1e6;
             writeMatrix("output.txt", matrix);
 
@@ -264,9 +255,9 @@ public class Main {
         // MODE: Single execution (Used by automated benchmark script)
         long t0 = System.nanoTime();
         if (mode.equals("sequential") || P == 1) {
-            sequentialConvolution(N, M, matrix);
+            sequentialConvolution(N, M, matrix, kernel);
         } else {
-            parallelConvolution(N, M, matrix, P);
+            parallelConvolution(N, M, matrix, kernel, P);
         }
         double durationMs = (System.nanoTime() - t0) / 1e6;
 
