@@ -1,0 +1,6 @@
+Matrix Dimensions,Kernel,Variant,Threads,Average Time (ms),Speedup
+10x10,3,Sequential,1,0.0184,1.00
+10x10,3,Variant_1b,2,2.1982,0.01
+10x10,3,Variant_1f,2,1.4926,0.01
+10x10,3,Variant_2b,2,1.8288,0.01
+10x10,3,Variant_2f,2,2.5456,0.01
