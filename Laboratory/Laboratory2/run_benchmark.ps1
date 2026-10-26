@@ -1,9 +1,6 @@
 param (
     [int]$runs = 10,
-    [string]$testCase = "all",
-    [int]$n = 0,
-    [int]$m = 0,
-    [int[]]$threads = @()
+    [string]$testCase = "all"
 )
 
 $jdk = "C:\Program Files\JetBrains\IntelliJ IDEA 2026.2.3\jbr\bin"
@@ -17,9 +14,9 @@ $cppDir  = "$PWD\Laboratory2_C++"
 $csvJava = "$PWD\results_java_lab2.csv"
 $csvCpp  = "$PWD\results_cpp_lab2.csv"
 
-# 1. Compile Java (Java 25) & C++ (C++26)
+# 1. Compile Java and C++
 New-Item -ItemType Directory -Path "$javaDir\bin" -Force | Out-Null
-Write-Host "Compiling Java (Java 25) and C++ (C++26)..." -ForegroundColor Yellow
+Write-Host "Compiling Java and C++..."
 cmd /c "javac -d `"$javaDir\bin`" `"$javaDir\src\Main.java`""
 $gpp = if (Test-Path "$mingw\g++.exe") { "$mingw\g++.exe" } else { "g++" }
 & $gpp -O3 -std=c++2c -pthread "$cppDir\main.cpp" -o "$cppDir\Lab2InPlace.exe"
@@ -30,95 +27,52 @@ if ($testCase -eq "all" -or -not (Test-Path $csvJava)) {
     Set-Content $csvCpp  "Matrix Dimensions,Kernel,Algorithm,Threads,Average Time (ms),Speedup"
 }
 
-# 2. Helper: Executes a command $runs times, prints each run on its own row, and returns the average
-function Get-AvgTime([string]$label, [scriptblock]$cmd) {
-    Write-Host "  $label" -ForegroundColor White
+# 2. Helper: Executes a command $runs times and returns the average time in ms
+function Get-AvgTime([scriptblock]$cmd) {
     $times = for ($r = 0; $r -lt $runs; $r++) {
         $out = & $cmd 2>&1
-        if ($LASTEXITCODE -ne 0) { Write-Error "`nRun $($r+1) failed: $out"; exit 1 }
+        if ($LASTEXITCODE -ne 0) { Write-Error "Run failed: $out"; exit 1 }
         $last = if ($out -is [array]) { $out[-1].ToString().Trim() } else { $out.ToString().Trim() }
-        $val = [double]$last
-        $runStr = ($r + 1).ToString("00")
-        Write-Host "    - Run ${runStr}: $([math]::Round($val, 4)) ms" -ForegroundColor DarkGray
-        $val
+        [double]$last
     }
-    $avg = ($times | Measure-Object -Average).Average
-    Write-Host "    ===> Average: $([math]::Round($avg, 4)) ms`n" -ForegroundColor Green
-    return $avg
+    return ($times | Measure-Object -Average).Average
 }
 
-# 3. Benchmark runner for a test case
-function Run-TestCase($name, $nVal, $mVal, $kVal, [int[]]$threadList) {
-    Write-Host "`n============================================================" -ForegroundColor Cyan
-    Write-Host "  $name - $nVal x $mVal matrix, kernel $kVal x $kVal ($runs iterations per test)" -ForegroundColor White
-    Write-Host "  Testing all threads: p = $($threadList -join ', ')" -ForegroundColor Yellow
-    Write-Host "============================================================" -ForegroundColor Cyan
-
-    powershell -ExecutionPolicy Bypass -File .\generateMatrices.ps1 -n $nVal -m $mVal -k $kVal
+# 3. Benchmark runner for a single test case
+function Run-TestCase($name, $n, $m, $k, [int[]]$threads) {
+    Write-Host "`n=== $name ($n x $m, k=$k) ===" -ForegroundColor Cyan
+    powershell -ExecutionPolicy Bypass -File .\generateMatrices.ps1 -n $n -m $m -k $k
     Remove-Item "$PWD\output_seq.txt" -ErrorAction SilentlyContinue
 
-    Write-Host "`n--- [Sequential Baselines] ---" -ForegroundColor Yellow
-    $jSeq = Get-AvgTime "Java 25 Sequential" { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main sequential 1 `"$PWD\date.txt`"" }
-    $cSeq = Get-AvgTime "C++26   Sequential" { cmd /c "`"$cppDir\Lab2InPlace.exe`" sequential 1 `"$PWD\date.txt`"" }
+    # Sequential baselines (automatically generates output_seq.txt)
+    $jSeq = Get-AvgTime { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main sequential 1 `"$PWD\date.txt`"" }
+    $cSeq = Get-AvgTime { cmd /c "`"$cppDir\Lab2InPlace.exe`" sequential 1 `"$PWD\date.txt`"" }
 
-    Add-Content $csvJava "$($nVal)x$($mVal),$kVal,Sequential,1,$([math]::Round($jSeq, 4)),1.00"
-    Add-Content $csvCpp  "$($nVal)x$($mVal),$kVal,Sequential,1,$([math]::Round($cSeq, 4)),1.00"
+    Add-Content $csvJava "$($n)x$($m),$k,Sequential,1,$([math]::Round($jSeq, 4)),1.00"
+    Add-Content $csvCpp  "$($n)x$($m),$k,Sequential,1,$([math]::Round($cSeq, 4)),1.00"
+    Write-Host "Sequential -> Java: $([math]::Round($jSeq,4))ms | C++: $([math]::Round($cSeq,4))ms"
 
-    Write-Host "--- [Parallel In-Place (Barrier Sync across all p)] ---" -ForegroundColor Yellow
-    foreach ($p in $threadList) {
-        $jTime = Get-AvgTime "Java 25 (p=$p)" { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main parallel $p `"$PWD\date.txt`"" }
-        $jRatio = if ($jTime -gt 0) { $jSeq / $jTime } else { 1.0 }
-        $jSpd = [math]::Round($jRatio, 2)
-        $jSpdDisplay = if ($jRatio -lt 0.01) { "{0:N4}x" -f $jRatio } else { "{0:N2}x" -f $jRatio }
-        Add-Content $csvJava "$($nVal)x$($mVal),$kVal,Parallel_Barrier,$p,$([math]::Round($jTime, 4)),$jSpd"
+    # Parallel (Variant 2B with Barrier)
+    foreach ($p in $threads) {
+        $jTime = Get-AvgTime { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main parallel $p `"$PWD\date.txt`"" }
+        $jSpd  = if ($jTime -gt 0) { "{0:N2}" -f ($jSeq / $jTime) } else { "1.00" }
+        Add-Content $csvJava "$($n)x$($m),$k,Parallel_Barrier,$p,$([math]::Round($jTime, 4)),$jSpd"
 
-        $cTime = Get-AvgTime "C++26   (p=$p)" { cmd /c "`"$cppDir\Lab2InPlace.exe`" parallel $p `"$PWD\date.txt`"" }
-        $cRatio = if ($cTime -gt 0) { $cSeq / $cTime } else { 1.0 }
-        $cSpd = [math]::Round($cRatio, 2)
-        $cSpdDisplay = if ($cRatio -lt 0.01) { "{0:N4}x" -f $cRatio } else { "{0:N2}x" -f $cRatio }
-        Add-Content $csvCpp "$($nVal)x$($mVal),$kVal,Parallel_Barrier,$p,$([math]::Round($cTime, 4)),$cSpd"
+        $cTime = Get-AvgTime { cmd /c "`"$cppDir\Lab2InPlace.exe`" parallel $p `"$PWD\date.txt`"" }
+        $cSpd  = if ($cTime -gt 0) { "{0:N2}" -f ($cSeq / $cTime) } else { "1.00" }
+        Add-Content $csvCpp "$($n)x$($m),$k,Parallel_Barrier,$p,$([math]::Round($cTime, 4)),$cSpd"
 
-        Write-Host "  >> Speedup (p=$p): Java = $jSpdDisplay | C++ = $cSpdDisplay`n" -ForegroundColor Cyan
+        Write-Host "p=$p [Parallel] -> Java: $([math]::Round($jTime,2))ms ($($jSpd)x) | C++: $([math]::Round($cTime,2))ms ($($cSpd)x)"
     }
 }
 
-# Determine default thread list helper
-function Get-DefaultThreads([int]$rowCount) {
-    if ($rowCount -le 4) { return @(2) }
-    if ($rowCount -le 6) { return @(2, 4) }
-    if ($rowCount -le 10) { return @(2, 4, 8, 16) }
-    return @(2, 4, 8, 16)
-}
-
-# Custom input mode (if user specified -n)
-if ($n -gt 0) {
-    if ($m -le 0) { $m = $n }
-    $runThreads = if ($threads.Count -gt 0) { $threads } else { Get-DefaultThreads $n }
-    Run-TestCase "CustomSmall" $n $m 3 $runThreads
-    exit 0
-}
-
-# Small test case mode (-testCase small)
-if ($testCase -eq "small" -or $testCase -eq "0") {
-    $runThreads = if ($threads.Count -gt 0) { $threads } else { @(2, 4) }
-    Run-TestCase "SmallDemo" 6 6 3 $runThreads
-    exit 0
-}
-
-# Standard test cases
+# Official Laboratory 2 Test Cases
 if ($testCase -eq "all" -or $testCase -eq "1" -or $testCase -eq "tc1") {
-    $tc1Threads = if ($threads.Count -gt 0) { $threads } else { @(2, 4, 8, 16) }
-    Run-TestCase "TC1" 10 10 3 $tc1Threads
+    Run-TestCase "TC1" 10 10 3 @(2)
 }
 if ($testCase -eq "all" -or $testCase -eq "2" -or $testCase -eq "tc2") {
-    $tc2Threads = if ($threads.Count -gt 0) { $threads } else { @(2, 4, 8, 16) }
-    Run-TestCase "TC2" 1000 1000 3 $tc2Threads
+    Run-TestCase "TC2" 1000 1000 3 @(2, 4, 8, 16)
 }
 if ($testCase -eq "all" -or $testCase -eq "3" -or $testCase -eq "tc3") {
-    $tc3Threads = if ($threads.Count -gt 0) { $threads } else { @(2, 4, 8, 16) }
-    Run-TestCase "TC3" 10000 10000 3 $tc3Threads
+    Run-TestCase "TC3" 10000 10000 3 @(2, 4, 8, 16)
 }
-
-Write-Host "All benchmarks completed! Results saved to:" -ForegroundColor Green
-Write-Host "  - $csvJava"
-Write-Host "  - $csvCpp"
