@@ -169,7 +169,6 @@ public class Main {
             if (startRow > 0) System.arraycopy(matrix[startRow - 1], 0, prevRow, 0, M);
             System.arraycopy(matrix[startRow], 0, currRow, 0, M);
 
-            // PHASE 1: COMPUTE all rows in this thread's range
             for (int i = startRow; i < endRow; i++) {
                 int[] nextRow = (i + 1 < N) ? matrix[i + 1] : null;
 

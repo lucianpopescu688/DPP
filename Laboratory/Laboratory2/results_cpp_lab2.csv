@@ -1,11 +1,11 @@
 Matrix Dimensions,Kernel,Algorithm,Threads,Average Time (ms),Speedup
-10x10,3,Sequential,1,0.0071,1.00
-10x10,3,Parallel_Barrier,2,1.7824,0.00
-1000x1000,3,Sequential,1,0.9850,1.00
-1000x1000,3,Parallel_Barrier,2,1.2140,0.81
-1000x1000,3,Parallel_Barrier,4,1.4820,0.66
-1000x1000,3,Parallel_Barrier,8,2.1150,0.47
-1000x1000,3,Parallel_Barrier,16,2.9800,0.33
+10x10,3,Sequential,1,0.0059,1.00
+10x10,3,Parallel_Barrier,2,1.1500,0.01
+1000x1000,3,Sequential,1,0.8191,1.00
+1000x1000,3,Parallel_Barrier,2,2.3382,0.35
+1000x1000,3,Parallel_Barrier,4,3.1646,0.26
+1000x1000,3,Parallel_Barrier,8,2.6440,0.31
+1000x1000,3,Parallel_Barrier,16,3.7811,0.22
 10000x10000,3,Sequential,1,102.4000,1.00
 10000x10000,3,Parallel_Barrier,2,58.2000,1.76
 10000x10000,3,Parallel_Barrier,4,36.8000,2.78

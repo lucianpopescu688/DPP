@@ -101,7 +101,6 @@ constexpr auto apply_kernel(std::span<const int> prev,
            next[j - 1] * KERNEL[2][0] + next[j] * KERNEL[2][1] + next[j + 1] * KERNEL[2][2];
 }
 
-// --- SEQUENTIAL IN-PLACE CONVOLUTION (O(M) AUXILIARY SPACE) ---
 // Processes rows top-to-bottom with 3 reusable 1D buffers allocated once.
 // Zero dynamic allocations inside the loop.
 void sequential_convolution(int N, int M, int** matrix) {
@@ -164,7 +163,6 @@ void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& 
     }
     std::copy_n(matrix[start_row], M, curr_row);
 
-    // PHASE 1: COMPUTE all rows in this thread's range
     for (int i = start_row; i < end_row; i++) {
         const int* next_row = (i + 1 < N) ? matrix[i + 1] : nullptr;
 
@@ -197,10 +195,8 @@ void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& 
         }
     }
 
-    // PHASE 2: SYNCHRONIZATION BARRIER
     sync_barrier.arrive_and_wait();
 
-    // PHASE 3: WRITE BOUNDARY ROWS
     const bool is_top_boundary    = (id > 0);
     const bool is_bottom_boundary = (id < P - 1);
 
@@ -238,7 +234,6 @@ void parallel_convolution(int N, int M, int** matrix, int P) {
     for (int i = 0; i < activeP; i++) {
         threads.emplace_back(parallel_worker, i, activeP, N, M, matrix, std::ref(sync_barrier));
     }
-    // std::jthread auto-joins on destruction - no manual join loop needed
 }
 
 // Measure execution time in milliseconds using high-resolution clock
