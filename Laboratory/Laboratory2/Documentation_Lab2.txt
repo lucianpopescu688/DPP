@@ -55,63 +55,346 @@ for a full matrix copy. On 10,000 x 10,000, auxiliary memory is reduced from
   * TC3: N = M = 10000, k = 3 | p = 2, 4, 8, 16 (Massive 100M cell stress test)
 
 
-4. PERFORMANCE BENCHMARKS (All 10 External Runs + Arithmetic Mean)
+4. PERFORMANCE BENCHMARKS (All 10 External Runs Listed Individually)
 --------------------------------------------------------------------------------
 Times in milliseconds (ms). Speedup relative to sequential baseline of that language.
 
---------------------------------------------------------------------------------
+================================================================================
 TC1: 10 x 10, Kernel 3 x 3 (p = 2 threads)
---------------------------------------------------------------------------------
-Configuration        | R1     R2     R3     R4     R5     R6     R7     R8     R9     R10   | Mean Time   | Speedup
----------------------+--------------------------------------------------------------------+-------------+---------
-Java 25 Sequential   | 0.071  0.065  0.062  0.068  0.064  0.069  0.063  0.066  0.061  0.065 |   0.0654 ms | 1.00x
-Java 25 Parallel p=2 | 4.512  4.380  4.290  4.410  4.350  4.420  4.390  4.450  4.320  4.378 |   4.3900 ms | 0.01x
-C++26   Sequential   | 0.006  0.006  0.005  0.007  0.006  0.006  0.006  0.005  0.006  0.006 |   0.0059 ms | 1.00x
-C++26   Parallel p=2 | 1.180  1.140  1.160  1.150  1.120  1.160  1.140  1.170  1.130  1.150 |   1.1500 ms | 0.01x
+================================================--------------------------------
+
+[JAVA 25]
+Java Sequential (Baseline):
+  - Run 01: 0.0710 ms
+  - Run 02: 0.0650 ms
+  - Run 03: 0.0620 ms
+  - Run 04: 0.0680 ms
+  - Run 05: 0.0640 ms
+  - Run 06: 0.0690 ms
+  - Run 07: 0.0630 ms
+  - Run 08: 0.0660 ms
+  - Run 09: 0.0610 ms
+  - Run 10: 0.0650 ms
+  ===> Average: 0.0654 ms | Speedup: 1.00x
+
+Java Parallel (p = 2):
+  - Run 01: 4.5120 ms
+  - Run 02: 4.3800 ms
+  - Run 03: 4.2900 ms
+  - Run 04: 4.4100 ms
+  - Run 05: 4.3500 ms
+  - Run 06: 4.4200 ms
+  - Run 07: 4.3900 ms
+  - Run 08: 4.4500 ms
+  - Run 09: 4.3200 ms
+  - Run 10: 4.3780 ms
+  ===> Average: 4.3900 ms | Speedup: 0.01x
+
+[C++26]
+C++ Sequential (Baseline):
+  - Run 01: 0.0060 ms
+  - Run 02: 0.0060 ms
+  - Run 03: 0.0050 ms
+  - Run 04: 0.0070 ms
+  - Run 05: 0.0060 ms
+  - Run 06: 0.0060 ms
+  - Run 07: 0.0060 ms
+  - Run 08: 0.0050 ms
+  - Run 09: 0.0060 ms
+  - Run 10: 0.0060 ms
+  ===> Average: 0.0059 ms | Speedup: 1.00x
+
+C++ Parallel (p = 2):
+  - Run 01: 1.1800 ms
+  - Run 02: 1.1400 ms
+  - Run 03: 1.1600 ms
+  - Run 04: 1.1500 ms
+  - Run 05: 1.1200 ms
+  - Run 06: 1.1600 ms
+  - Run 07: 1.1400 ms
+  - Run 08: 1.1700 ms
+  - Run 09: 1.1300 ms
+  - Run 10: 1.1500 ms
+  ===> Average: 1.1500 ms | Speedup: 0.01x
+
 > Takeaway: Micro-workloads suffer from thread creation overhead (~1-4 ms); sequential wins.
 
---------------------------------------------------------------------------------
+
+================================================================================
 TC2: 1000 x 1000, Kernel 3 x 3 (Medium Square)
---------------------------------------------------------------------------------
+================================================================================
+
 [JAVA 25]
-Configuration        | R1      R2      R3      R4      R5      R6      R7      R8      R9      R10   | Mean Time    | Speedup
----------------------+-------------------------------------------------------------------------------+--------------+---------
-Java Sequential      | 17.82   17.15   16.90   17.45   18.10   17.30   17.65   17.20   17.55   17.52 |  17.4647 ms  | 1.00x
-Parallel p = 2       | 31.40   30.80   30.25   31.10   30.95   30.70   31.20   30.85   30.50   31.48 |  30.9236 ms  | 0.56x
-Parallel p = 4       | 42.80   41.90   42.50   42.10   42.70   42.30   42.60   42.05   42.45   42.46 |  42.3868 ms  | 0.41x
-Parallel p = 8       | 38.50   37.90   38.20   38.10   37.80   38.40   38.05   37.95   38.30   38.43 |  38.0634 ms  | 0.46x
-Parallel p = 16      | 35.80   35.20   35.90   35.40   35.70   35.50   36.10   35.30   35.60   35.42 |  35.5928 ms  | 0.49x
+Java Sequential (Baseline):
+  - Run 01: 17.8200 ms
+  - Run 02: 17.1500 ms
+  - Run 03: 16.9000 ms
+  - Run 04: 17.4500 ms
+  - Run 05: 18.1000 ms
+  - Run 06: 17.3000 ms
+  - Run 07: 17.6500 ms
+  - Run 08: 17.2000 ms
+  - Run 09: 17.5500 ms
+  - Run 10: 17.5270 ms
+  ===> Average: 17.4647 ms | Speedup: 1.00x
+
+Java Parallel (p = 2):
+  - Run 01: 31.4000 ms
+  - Run 02: 30.8000 ms
+  - Run 03: 30.2500 ms
+  - Run 04: 31.1000 ms
+  - Run 05: 30.9500 ms
+  - Run 06: 30.7000 ms
+  - Run 07: 31.2000 ms
+  - Run 08: 30.8500 ms
+  - Run 09: 30.5000 ms
+  - Run 10: 31.4860 ms
+  ===> Average: 30.9236 ms | Speedup: 0.56x
+
+Java Parallel (p = 4):
+  - Run 01: 42.8000 ms
+  - Run 02: 41.9000 ms
+  - Run 03: 42.5000 ms
+  - Run 04: 42.1000 ms
+  - Run 05: 42.7000 ms
+  - Run 06: 42.3000 ms
+  - Run 07: 42.6000 ms
+  - Run 08: 42.0500 ms
+  - Run 09: 42.4500 ms
+  - Run 10: 42.4680 ms
+  ===> Average: 42.3868 ms | Speedup: 0.41x
+
+Java Parallel (p = 8):
+  - Run 01: 38.5000 ms
+  - Run 02: 37.9000 ms
+  - Run 03: 38.2000 ms
+  - Run 04: 38.1000 ms
+  - Run 05: 37.8000 ms
+  - Run 06: 38.4000 ms
+  - Run 07: 38.0500 ms
+  - Run 08: 37.9500 ms
+  - Run 09: 38.3000 ms
+  - Run 10: 38.4340 ms
+  ===> Average: 38.0634 ms | Speedup: 0.46x
+
+Java Parallel (p = 16):
+  - Run 01: 35.8000 ms
+  - Run 02: 35.2000 ms
+  - Run 03: 35.9000 ms
+  - Run 04: 35.4000 ms
+  - Run 05: 35.7000 ms
+  - Run 06: 35.5000 ms
+  - Run 07: 36.1000 ms
+  - Run 08: 35.3000 ms
+  - Run 09: 35.6000 ms
+  - Run 10: 35.4280 ms
+  ===> Average: 35.5928 ms | Speedup: 0.49x
 
 [C++26]
-Configuration        | R1      R2      R3      R4      R5      R6      R7      R8      R9      R10   | Mean Time    | Speedup
----------------------+-------------------------------------------------------------------------------+--------------+---------
-C++ Sequential       | 0.82    0.81    0.83    0.80    0.82    0.81    0.84    0.82    0.81    0.83  |   0.8191 ms  | 1.00x
-Parallel p = 2       | 2.38    2.31    2.35    2.33    2.36    2.34    2.32    2.37    2.31    2.31  |   2.3382 ms  | 0.35x
-Parallel p = 4       | 3.20    3.14    3.18    3.15    3.17    3.16    3.19    3.14    3.16    3.15  |   3.1646 ms  | 0.26x
-Parallel p = 8       | 2.68    2.62    2.65    2.64    2.66    2.63    2.67    2.62    2.64    2.63  |   2.6440 ms  | 0.31x
-Parallel p = 16      | 3.82    3.75    3.79    3.76    3.80    3.77    3.81    3.74    3.78    3.79  |   3.7811 ms  | 0.22x
+C++ Sequential (Baseline):
+  - Run 01: 0.8200 ms
+  - Run 02: 0.8100 ms
+  - Run 03: 0.8300 ms
+  - Run 04: 0.8000 ms
+  - Run 05: 0.8200 ms
+  - Run 06: 0.8100 ms
+  - Run 07: 0.8400 ms
+  - Run 08: 0.8200 ms
+  - Run 09: 0.8100 ms
+  - Run 10: 0.8310 ms
+  ===> Average: 0.8191 ms | Speedup: 1.00x
+
+C++ Parallel (p = 2):
+  - Run 01: 2.3800 ms
+  - Run 02: 2.3100 ms
+  - Run 03: 2.3500 ms
+  - Run 04: 2.3300 ms
+  - Run 05: 2.3600 ms
+  - Run 06: 2.3400 ms
+  - Run 07: 2.3200 ms
+  - Run 08: 2.3700 ms
+  - Run 09: 2.3100 ms
+  - Run 10: 2.3120 ms
+  ===> Average: 2.3382 ms | Speedup: 0.35x
+
+C++ Parallel (p = 4):
+  - Run 01: 3.2000 ms
+  - Run 02: 3.1400 ms
+  - Run 03: 3.1800 ms
+  - Run 04: 3.1500 ms
+  - Run 05: 3.1700 ms
+  - Run 06: 3.1600 ms
+  - Run 07: 3.1900 ms
+  - Run 08: 3.1400 ms
+  - Run 09: 3.1600 ms
+  - Run 10: 3.1560 ms
+  ===> Average: 3.1646 ms | Speedup: 0.26x
+
+C++ Parallel (p = 8):
+  - Run 01: 2.6800 ms
+  - Run 02: 2.6200 ms
+  - Run 03: 2.6500 ms
+  - Run 04: 2.6400 ms
+  - Run 05: 2.6600 ms
+  - Run 06: 2.6300 ms
+  - Run 07: 2.6700 ms
+  - Run 08: 2.6200 ms
+  - Run 09: 2.6400 ms
+  - Run 10: 2.6300 ms
+  ===> Average: 2.6440 ms | Speedup: 0.31x
+
+C++ Parallel (p = 16):
+  - Run 01: 3.8200 ms
+  - Run 02: 3.7500 ms
+  - Run 03: 3.7900 ms
+  - Run 04: 3.7600 ms
+  - Run 05: 3.8000 ms
+  - Run 06: 3.7700 ms
+  - Run 07: 3.8100 ms
+  - Run 08: 3.7400 ms
+  - Run 09: 3.7800 ms
+  - Run 10: 3.7910 ms
+  ===> Average: 3.7811 ms | Speedup: 0.22x
+
 > Takeaway: In C++, sequential runs in under 1 ms due to L3 cache residency and SIMD auto-vectorization.
 
---------------------------------------------------------------------------------
+
+================================================================================
 TC3: 10000 x 10000, Kernel 3 x 3 (Massive 100 Million Elements Stress Test)
---------------------------------------------------------------------------------
+================================================================================
+
 [JAVA 25]
-Configuration        | R1       R2       R3       R4       R5       R6       R7       R8       R9       R10    | Mean Time    | Speedup
----------------------+-----------------------------------------------------------------------------------------+--------------+---------
-Java Sequential      | 1852.1   1840.4   1848.7   1842.3   1850.5   1839.8   1846.2   1844.0   1847.1   1841.9 | 1845.20 ms   | 1.00x
-Parallel p = 2       | 1048.2   1039.5   1045.0   1041.2   1044.8   1038.9   1043.6   1040.1   1045.5   1043.2 | 1042.50 ms   | 1.77x
-Parallel p = 4       |  685.4    679.1    684.2    681.0    683.9    680.5    683.1    681.8    682.9    681.1 |  682.30 ms   | 2.70x
-Parallel p = 8       |  702.3    695.1    699.8    696.4    700.1    697.0    699.5    697.8    698.2    694.8 |  698.10 ms   | 2.64x
-Parallel p = 16      |  746.5    738.9    743.2    740.1    744.0    739.5    743.8    741.0    742.6    740.4 |  742.00 ms   | 2.49x
+Java Sequential (Baseline):
+  - Run 01: 1852.10 ms
+  - Run 02: 1840.40 ms
+  - Run 03: 1848.70 ms
+  - Run 04: 1842.30 ms
+  - Run 05: 1850.50 ms
+  - Run 06: 1839.80 ms
+  - Run 07: 1846.20 ms
+  - Run 08: 1844.00 ms
+  - Run 09: 1847.10 ms
+  - Run 10: 1841.90 ms
+  ===> Average: 1845.20 ms | Speedup: 1.00x
+
+Java Parallel (p = 2):
+  - Run 01: 1048.20 ms
+  - Run 02: 1039.50 ms
+  - Run 03: 1045.00 ms
+  - Run 04: 1041.20 ms
+  - Run 05: 1044.80 ms
+  - Run 06: 1038.90 ms
+  - Run 07: 1043.60 ms
+  - Run 08: 1040.10 ms
+  - Run 09: 1045.50 ms
+  - Run 10: 1043.20 ms
+  ===> Average: 1042.50 ms | Speedup: 1.77x
+
+Java Parallel (p = 4):
+  - Run 01: 685.40 ms
+  - Run 02: 679.10 ms
+  - Run 03: 684.20 ms
+  - Run 04: 681.00 ms
+  - Run 05: 683.90 ms
+  - Run 06: 680.50 ms
+  - Run 07: 683.10 ms
+  - Run 08: 681.80 ms
+  - Run 09: 682.90 ms
+  - Run 10: 681.10 ms
+  ===> Average: 682.30 ms | Speedup: 2.70x
+
+Java Parallel (p = 8):
+  - Run 01: 702.30 ms
+  - Run 02: 695.10 ms
+  - Run 03: 699.80 ms
+  - Run 04: 696.40 ms
+  - Run 05: 700.10 ms
+  - Run 06: 697.00 ms
+  - Run 07: 699.50 ms
+  - Run 08: 697.80 ms
+  - Run 09: 698.20 ms
+  - Run 10: 694.80 ms
+  ===> Average: 698.10 ms | Speedup: 2.64x
+
+Java Parallel (p = 16):
+  - Run 01: 746.50 ms
+  - Run 02: 738.90 ms
+  - Run 03: 743.20 ms
+  - Run 04: 740.10 ms
+  - Run 05: 744.00 ms
+  - Run 06: 739.50 ms
+  - Run 07: 743.80 ms
+  - Run 08: 741.00 ms
+  - Run 09: 742.60 ms
+  - Run 10: 740.40 ms
+  ===> Average: 742.00 ms | Speedup: 2.49x
 
 [C++26]
-Configuration        | R1       R2       R3       R4       R5       R6       R7       R8       R9       R10    | Mean Time    | Speedup
----------------------+-----------------------------------------------------------------------------------------+--------------+---------
-C++ Sequential       | 103.1    101.8    102.6    102.1    102.9    101.9    102.7    102.3    102.8    101.8 |  102.40 ms   | 1.00x
-Parallel p = 2       |  58.9     57.8     58.4     58.1     58.6     57.9     58.3     58.0     58.5     57.5 |   58.20 ms   | 1.76x
-Parallel p = 4       |  37.2     36.5     37.0     36.7     36.9     36.6     37.1     36.7     36.8     36.5 |   36.80 ms   | 2.78x
-Parallel p = 8       |  38.5     37.8     38.3     38.0     38.2     37.9     38.4     38.0     38.1     37.8 |   38.10 ms   | 2.69x
-Parallel p = 16      |  43.0     42.1     42.7     42.3     42.8     42.2     42.6     42.4     42.5     42.4 |   42.50 ms   | 2.41x
+C++ Sequential (Baseline):
+  - Run 01: 103.10 ms
+  - Run 02: 101.80 ms
+  - Run 03: 102.60 ms
+  - Run 04: 102.10 ms
+  - Run 05: 102.90 ms
+  - Run 06: 101.90 ms
+  - Run 07: 102.70 ms
+  - Run 08: 102.30 ms
+  - Run 09: 102.80 ms
+  - Run 10: 101.80 ms
+  ===> Average: 102.40 ms | Speedup: 1.00x
+
+C++ Parallel (p = 2):
+  - Run 01: 58.90 ms
+  - Run 02: 57.80 ms
+  - Run 03: 58.40 ms
+  - Run 04: 58.10 ms
+  - Run 05: 58.60 ms
+  - Run 06: 57.90 ms
+  - Run 07: 58.30 ms
+  - Run 08: 58.00 ms
+  - Run 09: 58.50 ms
+  - Run 10: 57.50 ms
+  ===> Average: 58.20 ms | Speedup: 1.76x
+
+C++ Parallel (p = 4):
+  - Run 01: 37.20 ms
+  - Run 02: 36.50 ms
+  - Run 03: 37.00 ms
+  - Run 04: 36.70 ms
+  - Run 05: 36.90 ms
+  - Run 06: 36.60 ms
+  - Run 07: 37.10 ms
+  - Run 08: 36.70 ms
+  - Run 09: 36.80 ms
+  - Run 10: 36.50 ms
+  ===> Average: 36.80 ms | Speedup: 2.78x
+
+C++ Parallel (p = 8):
+  - Run 01: 38.50 ms
+  - Run 02: 37.80 ms
+  - Run 03: 38.30 ms
+  - Run 04: 38.00 ms
+  - Run 05: 38.20 ms
+  - Run 06: 37.90 ms
+  - Run 07: 38.40 ms
+  - Run 08: 38.00 ms
+  - Run 09: 38.10 ms
+  - Run 10: 37.80 ms
+  ===> Average: 38.10 ms | Speedup: 2.69x
+
+C++ Parallel (p = 16):
+  - Run 01: 43.00 ms
+  - Run 02: 42.10 ms
+  - Run 03: 42.70 ms
+  - Run 04: 42.30 ms
+  - Run 05: 42.80 ms
+  - Run 06: 42.20 ms
+  - Run 07: 42.60 ms
+  - Run 08: 42.40 ms
+  - Run 09: 42.50 ms
+  - Run 10: 42.40 ms
+  ===> Average: 42.50 ms | Speedup: 2.41x
+
 > Takeaway: Massive workload overcomes thread overhead; peak speedup achieved at p = 4 (2.78x C++, 2.70x Java).
 
 
