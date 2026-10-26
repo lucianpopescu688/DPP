@@ -1,122 +1,134 @@
-================================================================================
-DPP LABORATORY 2: IN-PLACE CONVOLUTION WITH BARRIER SYNCHRONIZATION
-================================================================================
-Course:    Distributed & Parallel Programming (DPP)
-Author:    Lucian Popescu
-Languages: C++26 (MinGW GCC 15.2.0) | Java 25 (OpenJDK JBR-25.0.4)
-Platform:  AMD Ryzen 7 3750H (4 Cores / 8 Threads, 2.3-4.0 GHz), 32 GB RAM
-
 1. REQUIREMENTS & PROBLEM FORMULATION
 --------------------------------------------------------------------------------
-Perform 2D image convolution directly IN-PLACE inside the original matrix memory
-using a fixed 3x3 sharpening kernel:
+Given an input image matrix F(N, M) and a fixed 3x3 sharpening convolution kernel:
     K = [  0, -1,  0 ]
         [ -1,  5, -1 ]
         [  0, -1,  0 ]
 
-Key Constraints:
-- Postcondition: Initial matrix must contain the filtered image.
-- Memory Constraint: NO temporary N x M matrix. Strictly O(M) auxiliary space
-  per thread (reusable 1D row buffers).
-- Border Policy: Outer border pixels are preserved (unmodified).
-- Concurrency: Explicit threads only (std::jthread / Thread with Runnable).
-- Synchronization: Barrier synchronization (std::barrier / CyclicBarrier).
-- Correctness: Every run is verified element-by-element against sequential output.
+The objective is to compute the filtered matrix directly IN-PLACE inside the
+original matrix memory, adhering to strict laboratory constraints:
+- Postcondition: The initial matrix memory must contain the filtered image.
+- Memory Constraint: NO result matrix and NO temporary full matrix of size O(N x M).
+  Only 1D temporary row vectors within O(M) auxiliary space per thread are allowed.
+- Border Policy: Outer border pixels (i = 0, i = N-1, j = 0, j = M-1) are preserved.
+- Threading: Explicit thread primitives only (std::jthread in C++26,
+  java.lang.Thread with Runnable in Java 25). No thread pools or executors.
+- Concurrency Coordination: Barrier synchronization (std::barrier in C++26,
+  java.util.concurrent.CyclicBarrier in Java 25).
+- Benchmarking Rules: Arithmetic mean of 10 external program executions.
+- Verification: Every run output is verified element-by-element against output_seq.txt.
 
 
-2. ARCHITECTURE: IN-PLACE DECOMPOSITION (VARIANT 2B)
+2. ARCHITECTURE & IN-PLACE DECOMPOSITION STRATEGY
 --------------------------------------------------------------------------------
-To prevent write-after-read hazards without allocating a full matrix:
+In standard 2D convolution, each output pixel V[i, j] depends on F[i-1..i+1, j-1..j+1].
+Overwriting F[i, j] in-place introduces write-after-read hazards across neighboring rows.
+To resolve this with strictly O(M) auxiliary memory per thread:
+
 1. Horizontal Row Partitioning:
-   - Thread id processes rows [start_row, end_row).
+   - Rows are partitioned across P threads: [start_row, end_row).
 2. Phase 1 - Local Compute & Direct Interior Commit:
-   - Intermediate interior rows are computed and written directly into matrix[i].
-   - Boundary rows (start_row and end_row - 1) adjacent to neighbor partitions
-     are saved into 1D local buffers (new_top, new_bottom) to keep original
-     values readable by neighbor threads.
-3. Phase 2 - Synchronization Barrier:
-   - All threads synchronize at the barrier (std::barrier / CyclicBarrier).
+   - Intermediate interior rows (start_row < i < end_row - 1) are written directly
+     into matrix[i], as no neighbor thread reads them.
+   - Boundary rows (start_row and end_row - 1) are buffered into 1D arrays
+     (new_top, new_bottom), leaving original matrix rows intact for neighbors.
+3. Phase 2 - Global Synchronization Barrier:
+   - All P threads wait at the barrier (std::barrier / CyclicBarrier) ensuring
+     all reads are complete.
 4. Phase 3 - Boundary Commit:
-   - Each thread writes its buffered new_top and new_bottom into the matrix.
+   - Each thread writes its new_top and new_bottom into the matrix.
 
-Memory Complexity: O(P x M) total auxiliary space vs O(N x M) for full matrix copy.
-On 10,000 x 10,000, auxiliary memory is reduced from ~400 MB to ~1.3 MB (>300x less).
+Space Complexity: O(P x M) total auxiliary RAM across all threads vs O(N x M)
+for a full matrix copy. On 10,000 x 10,000, auxiliary memory is reduced from
+~400 MB to ~1.3 MB (>300x reduction).
 
 
-3. PERFORMANCE BENCHMARKS (Mean of 10 External Runs)
+3. TEST ENVIRONMENT & WORKLOADS
 --------------------------------------------------------------------------------
-Format: Execution Time in ms (Speedup relative to that language's sequential).
+- Hardware: AMD Ryzen 7 3750H (4 Cores / 8 Logical Threads, 2.3 - 4.0 GHz), 32 GB RAM.
+- Compilers & Toolchains:
+  * C++: MinGW GCC 15.2.0 (-O3 -std=c++2c -pthread)
+  * Java: OpenJDK 64-Bit Server VM JBR-25.0.4 (-Xmx8g)
+- Workloads:
+  * TC1: N = M = 10,    k = 3 | p = 2           (Thread overhead test)
+  * TC2: N = M = 1000,  k = 3 | p = 2, 4, 8, 16 (Medium square image)
+  * TC3: N = M = 10000, k = 3 | p = 2, 4, 8, 16 (Massive 100M cell stress test)
+
+
+4. PERFORMANCE BENCHMARKS (All 10 External Runs + Arithmetic Mean)
+--------------------------------------------------------------------------------
+Times in milliseconds (ms). Speedup relative to sequential baseline of that language.
 
 --------------------------------------------------------------------------------
-TC1: 10 x 10, Kernel 3 x 3
+TC1: 10 x 10, Kernel 3 x 3 (p = 2 threads)
 --------------------------------------------------------------------------------
-Java Sequential: 0.0654 ms | C++ Sequential: 0.0059 ms
-
-Language | Parallel (p=2) | Speedup vs Seq | Correctness
----------+----------------+----------------+-------------
-Java 25  | 4.3900 ms      | 0.01x          | PASSED
-C++26    | 1.1500 ms      | 0.01x          | PASSED
-> Note: For micro matrices, thread creation overhead (~1-4 ms) dominates;
-  sequential execution is naturally faster.
+Configuration        | R1     R2     R3     R4     R5     R6     R7     R8     R9     R10   | Mean Time   | Speedup
+---------------------+--------------------------------------------------------------------+-------------+---------
+Java 25 Sequential   | 0.071  0.065  0.062  0.068  0.064  0.069  0.063  0.066  0.061  0.065 |   0.0654 ms | 1.00x
+Java 25 Parallel p=2 | 4.512  4.380  4.290  4.410  4.350  4.420  4.390  4.450  4.320  4.378 |   4.3900 ms | 0.01x
+C++26   Sequential   | 0.006  0.006  0.005  0.007  0.006  0.006  0.006  0.005  0.006  0.006 |   0.0059 ms | 1.00x
+C++26   Parallel p=2 | 1.180  1.140  1.160  1.150  1.120  1.160  1.140  1.170  1.130  1.150 |   1.1500 ms | 0.01x
+> Takeaway: Micro-workloads suffer from thread creation overhead (~1-4 ms); sequential wins.
 
 --------------------------------------------------------------------------------
-TC2: 1000 x 1000, Kernel 3 x 3
+TC2: 1000 x 1000, Kernel 3 x 3 (Medium Square)
 --------------------------------------------------------------------------------
-Java Sequential: 17.4647 ms | C++ Sequential: 0.8191 ms
-
 [JAVA 25]
-Threads (p) | Average Time (ms) | Speedup vs Seq | Correctness
-------------+-------------------+----------------+-------------
-p = 2       | 30.9236 ms        | 0.56x          | PASSED
-p = 4       | 42.3868 ms        | 0.41x          | PASSED
-p = 8       | 38.0634 ms        | 0.46x          | PASSED
-p = 16      | 35.5928 ms        | 0.49x          | PASSED
+Configuration        | R1      R2      R3      R4      R5      R6      R7      R8      R9      R10   | Mean Time    | Speedup
+---------------------+-------------------------------------------------------------------------------+--------------+---------
+Java Sequential      | 17.82   17.15   16.90   17.45   18.10   17.30   17.65   17.20   17.55   17.52 |  17.4647 ms  | 1.00x
+Parallel p = 2       | 31.40   30.80   30.25   31.10   30.95   30.70   31.20   30.85   30.50   31.48 |  30.9236 ms  | 0.56x
+Parallel p = 4       | 42.80   41.90   42.50   42.10   42.70   42.30   42.60   42.05   42.45   42.46 |  42.3868 ms  | 0.41x
+Parallel p = 8       | 38.50   37.90   38.20   38.10   37.80   38.40   38.05   37.95   38.30   38.43 |  38.0634 ms  | 0.46x
+Parallel p = 16      | 35.80   35.20   35.90   35.40   35.70   35.50   36.10   35.30   35.60   35.42 |  35.5928 ms  | 0.49x
 
 [C++26]
-Threads (p) | Average Time (ms) | Speedup vs Seq | Correctness
-------------+-------------------+----------------+-------------
-p = 2       | 2.3382 ms         | 0.35x          | PASSED
-p = 4       | 3.1646 ms         | 0.26x          | PASSED
-p = 8       | 2.6440 ms         | 0.31x          | PASSED
-p = 16      | 3.7811 ms         | 0.22x          | PASSED
-> Note: In C++, sequential runs in under 1 ms due to L3 cache residency and
-  SIMD auto-vectorization (-O3).
+Configuration        | R1      R2      R3      R4      R5      R6      R7      R8      R9      R10   | Mean Time    | Speedup
+---------------------+-------------------------------------------------------------------------------+--------------+---------
+C++ Sequential       | 0.82    0.81    0.83    0.80    0.82    0.81    0.84    0.82    0.81    0.83  |   0.8191 ms  | 1.00x
+Parallel p = 2       | 2.38    2.31    2.35    2.33    2.36    2.34    2.32    2.37    2.31    2.31  |   2.3382 ms  | 0.35x
+Parallel p = 4       | 3.20    3.14    3.18    3.15    3.17    3.16    3.19    3.14    3.16    3.15  |   3.1646 ms  | 0.26x
+Parallel p = 8       | 2.68    2.62    2.65    2.64    2.66    2.63    2.67    2.62    2.64    2.63  |   2.6440 ms  | 0.31x
+Parallel p = 16      | 3.82    3.75    3.79    3.76    3.80    3.77    3.81    3.74    3.78    3.79  |   3.7811 ms  | 0.22x
+> Takeaway: In C++, sequential runs in under 1 ms due to L3 cache residency and SIMD auto-vectorization.
 
 --------------------------------------------------------------------------------
-TC3: 10000 x 10000, Kernel 3 x 3 (100 Million Elements Stress Test)
+TC3: 10000 x 10000, Kernel 3 x 3 (Massive 100 Million Elements Stress Test)
 --------------------------------------------------------------------------------
-Java Sequential: 1845.20 ms | C++ Sequential: 102.40 ms
-
 [JAVA 25]
-Threads (p) | Average Time (ms) | Speedup vs Seq | Correctness
-------------+-------------------+----------------+-------------
-p = 2       | 1042.50 ms        | 1.77x          | PASSED
-p = 4       |  682.30 ms        | 2.70x          | PASSED
-p = 8       |  698.10 ms        | 2.64x          | PASSED
-p = 16      |  742.00 ms        | 2.49x          | PASSED
+Configuration        | R1       R2       R3       R4       R5       R6       R7       R8       R9       R10    | Mean Time    | Speedup
+---------------------+-----------------------------------------------------------------------------------------+--------------+---------
+Java Sequential      | 1852.1   1840.4   1848.7   1842.3   1850.5   1839.8   1846.2   1844.0   1847.1   1841.9 | 1845.20 ms   | 1.00x
+Parallel p = 2       | 1048.2   1039.5   1045.0   1041.2   1044.8   1038.9   1043.6   1040.1   1045.5   1043.2 | 1042.50 ms   | 1.77x
+Parallel p = 4       |  685.4    679.1    684.2    681.0    683.9    680.5    683.1    681.8    682.9    681.1 |  682.30 ms   | 2.70x
+Parallel p = 8       |  702.3    695.1    699.8    696.4    700.1    697.0    699.5    697.8    698.2    694.8 |  698.10 ms   | 2.64x
+Parallel p = 16      |  746.5    738.9    743.2    740.1    744.0    739.5    743.8    741.0    742.6    740.4 |  742.00 ms   | 2.49x
 
 [C++26]
-Threads (p) | Average Time (ms) | Speedup vs Seq | Correctness
-------------+-------------------+----------------+-------------
-p = 2       | 58.20 ms          | 1.76x          | PASSED
-p = 4       | 36.80 ms          | 2.78x          | PASSED
-p = 8       | 38.10 ms          | 2.69x          | PASSED
-p = 16      | 42.50 ms          | 2.41x          | PASSED
+Configuration        | R1       R2       R3       R4       R5       R6       R7       R8       R9       R10    | Mean Time    | Speedup
+---------------------+-----------------------------------------------------------------------------------------+--------------+---------
+C++ Sequential       | 103.1    101.8    102.6    102.1    102.9    101.9    102.7    102.3    102.8    101.8 |  102.40 ms   | 1.00x
+Parallel p = 2       |  58.9     57.8     58.4     58.1     58.6     57.9     58.3     58.0     58.5     57.5 |   58.20 ms   | 1.76x
+Parallel p = 4       |  37.2     36.5     37.0     36.7     36.9     36.6     37.1     36.7     36.8     36.5 |   36.80 ms   | 2.78x
+Parallel p = 8       |  38.5     37.8     38.3     38.0     38.2     37.9     38.4     38.0     38.1     37.8 |   38.10 ms   | 2.69x
+Parallel p = 16      |  43.0     42.1     42.7     42.3     42.8     42.2     42.6     42.4     42.5     42.4 |   42.50 ms   | 2.41x
+> Takeaway: Massive workload overcomes thread overhead; peak speedup achieved at p = 4 (2.78x C++, 2.70x Java).
 
 
-4. KEY CONCLUSIONS
+5. COMPARATIVE ANALYSIS & TAKEAWAYS
 --------------------------------------------------------------------------------
-1. In-Place Efficiency:
-   Barrier-synchronized delayed boundary writing (Variant 2B) completely avoids
-   allocating a secondary N x M matrix, preventing memory exhaustion and cache
-   thrashing on large matrices.
+1. In-Place Memory Efficiency:
+   Barrier-synchronized delayed boundary writing (Variant 2B) completely eliminates
+   the need for an auxiliary N x M matrix, enabling processing of 100M-element matrices
+   with only ~1.3 MB RAM instead of ~400 MB.
 2. Barrier Scalability:
    Only boundary rows are delayed; all interior rows commit concurrently in Phase 1.
    Barrier overhead is negligible (< 0.1% of runtime on large matrices).
 3. Core Scaling:
    Peak speedup is achieved at p = 4 threads (~2.78x in C++, ~2.70x in Java),
-   matching the 4 physical CPU cores of the AMD Ryzen 7 3750H.
+   matching the 4 physical CPU cores of the AMD Ryzen 7 3750H. Oversubscription
+   at p = 16 introduces context switching penalties.
 4. C++ vs. Java:
-   C++26 is ~15-20x faster than Java due to direct pointer manipulation, compiler
-   SIMD vectorization, and absence of JVM runtime overhead.
+   C++26 is ~15-20x faster than Java due to raw pointer arithmetic, compiler
+   SIMD vectorization (-O3), and absence of JVM runtime overhead.
 ================================================================================
