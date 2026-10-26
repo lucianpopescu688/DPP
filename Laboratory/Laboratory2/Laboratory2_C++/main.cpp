@@ -2,62 +2,49 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include <array>
-#include <span>
-#include <format>
 #include <thread>
 #include <barrier>
 #include <chrono>
 #include <algorithm>
+#include <format>
 
 // --- CONSTANTS ---
-// Fixed 3x3 sharpening kernel (constexpr for compile-time evaluation)
-constexpr std::array<std::array<int, 3>, 3> KERNEL = {{
-    {{ 0, -1,  0}},
-    {{-1,  5, -1}},
-    {{ 0, -1,  0}}
-}};
+// Standard 3x3 sharpening kernel: center = 5, orthogonal neighbors = -1
+const int KERNEL[3][3] = {
+    { 0, -1,  0},
+    {-1,  5, -1},
+    { 0, -1,  0}
+};
 
 // --- MEMORY MANAGEMENT ---
-// Allocate NxM matrix on the heap (dynamic allocation only, as required)
-auto allocate_matrix(int N, int M) -> int** {
+int** allocate_matrix(int N, int M) {
     auto** matrix = new int*[N];
-    for (int i = 0; i < N; i++) {
-        matrix[i] = new int[M]();
-    }
+    for (int i = 0; i < N; i++) matrix[i] = new int[M]();
     return matrix;
 }
 
-// Free 2D heap-allocated matrix
 void free_matrix(int** matrix, int N) {
     if (!matrix) return;
-    for (int i = 0; i < N; i++) {
-        delete[] matrix[i];
-    }
+    for (int i = 0; i < N; i++) delete[] matrix[i];
     delete[] matrix;
 }
 
-// --- FILE I/O & VERIFICATION ---
-// Reads matrix dimensions and data from file (format: "N M\n <data>")
+// --- FILE I/O ---
 // Searches current directory, parent directory, and grandparent directory
-auto read_matrix(const std::string& filename, int& N, int& M) -> int** {
+int** read_matrix(const std::string& filename, int& N, int& M) {
     std::ifstream fin(filename);
     if (!fin) fin.open("../" + filename);
     if (!fin) fin.open("../../" + filename);
-    if (!fin) fin.open("../../../" + filename);
     if (!fin) return nullptr;
 
     if (!(fin >> N >> M)) return nullptr;
     auto** matrix = allocate_matrix(N, M);
     for (int i = 0; i < N; i++) {
-        for (int j = 0; j < M; j++) {
-            fin >> matrix[i][j];
-        }
+        for (int j = 0; j < M; j++) fin >> matrix[i][j];
     }
     return matrix;
 }
 
-// Writes matrix with dimensions header to output file
 void write_matrix(const std::string& filename, int** matrix, int N, int M) {
     std::ofstream fout(filename);
     fout << N << ' ' << M << '\n';
@@ -69,151 +56,121 @@ void write_matrix(const std::string& filename, int** matrix, int N, int M) {
     }
 }
 
-// Verifies two output files match value-by-value without allocating an extra matrix
-// (Complies with O(M) space constraint - no second matrix in memory)
-auto verify_files_equal(const std::string& file1, const std::string& file2) -> bool {
-    std::ifstream f1(file1);
-    if (!f1.is_open()) f1.open("../" + file1);
-    if (!f1.is_open()) f1.open("../../" + file1);
+// Verify output files match byte-for-byte without extra matrix allocation
+bool verify_files_equal(const std::string& file1, const std::string& file2) {
+    std::ifstream f1(file1), f2(file2);
+    if (!f1) f1.open("../" + file1);
+    if (!f2) f2.open("../" + file2);
+    if (!f1 || !f2) return false;
 
-    std::ifstream f2(file2);
-    if (!f2.is_open()) f2.open("../" + file2);
-    if (!f2.is_open()) f2.open("../../" + file2);
-
-    if (!f1.is_open() || !f2.is_open()) return false;
     int n1, m1, n2, m2;
     if (!(f1 >> n1 >> m1) || !(f2 >> n2 >> m2)) return false;
     if (n1 != n2 || m1 != m2) return false;
-    int val1, val2;
-    while ((f1 >> val1) && (f2 >> val2)) {
-        if (val1 != val2) return false;
+
+    int v1, v2;
+    while ((f1 >> v1) && (f2 >> v2)) {
+        if (v1 != v2) return false;
     }
     return true;
 }
 
 // --- CONVOLUTION HELPER ---
-// Applies the 3x3 kernel to a single interior pixel using span views
-constexpr auto apply_kernel(std::span<const int> prev,
-                            std::span<const int> curr,
-                            std::span<const int> next, int j) -> int {
+inline int apply_kernel(const int* prev, const int* curr, const int* next, int j) {
     return prev[j - 1] * KERNEL[0][0] + prev[j] * KERNEL[0][1] + prev[j + 1] * KERNEL[0][2] +
            curr[j - 1] * KERNEL[1][0] + curr[j] * KERNEL[1][1] + curr[j + 1] * KERNEL[1][2] +
            next[j - 1] * KERNEL[2][0] + next[j] * KERNEL[2][1] + next[j + 1] * KERNEL[2][2];
 }
 
-// Processes rows top-to-bottom with 3 reusable 1D buffers allocated once.
-// Zero dynamic allocations inside the loop.
+// --- SEQUENTIAL IN-PLACE CONVOLUTION (O(M) AUXILIARY SPACE) ---
 void sequential_convolution(int N, int M, int** matrix) {
     if (N < 3 || M < 3) return;
 
-    auto* prev_row     = new int[M];
-    auto* curr_row     = new int[M];
-    auto* computed_row = new int[M];
+    auto* prev = new int[M];
+    auto* curr = new int[M];
+    auto* comp = new int[M];
 
-    std::copy_n(matrix[0], M, prev_row);
-    std::copy_n(matrix[1], M, curr_row);
+    std::copy_n(matrix[0], M, prev);
+    std::copy_n(matrix[1], M, curr);
 
     for (int i = 1; i < N - 1; i++) {
-        const int* next_row = matrix[i + 1];
-
-        std::span<const int> prev(prev_row, M);
-        std::span<const int> curr(curr_row, M);
-        std::span<const int> next(next_row, M);
-
+        const int* next = matrix[i + 1];
         for (int j = 1; j < M - 1; j++) {
-            computed_row[j] = apply_kernel(prev, curr, next, j);
+            comp[j] = apply_kernel(prev, curr, next, j);
         }
-        computed_row[0]     = curr_row[0];
-        computed_row[M - 1] = curr_row[M - 1];
+        comp[0] = curr[0];
+        comp[M - 1] = curr[M - 1];
 
-        // Shift buffers forward before writing to matrix[i]
-        std::copy_n(curr_row, M, prev_row);
-        std::copy_n(next_row, M, curr_row);
-
-        // Replace row in-place
-        std::copy_n(computed_row, M, matrix[i]);
+        // Shift buffers forward before writing in-place
+        std::copy_n(curr, M, prev);
+        std::copy_n(next, M, curr);
+        std::copy_n(comp, M, matrix[i]);
     }
 
-    delete[] prev_row;
-    delete[] curr_row;
-    delete[] computed_row;
+    delete[] prev;
+    delete[] curr;
+    delete[] comp;
 }
 
-// Each thread computes its assigned rows using O(M) auxiliary space.
-// 1D buffers are allocated ONCE per thread (zero allocations inside loop).
+// --- PARALLEL WORKER (VARIANT 2B - BARRIER + DELAYED BOUNDARY WRITE) ---
 void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& sync_barrier) {
-    const int inner_rows = N - 2;
-    const int start_row  = 1 + id * inner_rows / P;
-    const int end_row    = (id == P - 1) ? N - 1 : 1 + (id + 1) * inner_rows / P;
+    int inner_rows = N - 2;
+    int start_row  = 1 + id * inner_rows / P;
+    int end_row    = (id == P - 1) ? N - 1 : 1 + (id + 1) * inner_rows / P;
 
     if (start_row >= end_row) {
         sync_barrier.arrive_and_wait();
         return;
     }
 
-    // Allocate 1D temporary arrays ONCE per thread (Strictly O(M) space)
-    auto* prev_row     = new int[M]();
-    auto* curr_row     = new int[M]();
-    auto* computed_row = new int[M]();
-    auto* new_top      = new int[M]();
-    auto* new_bottom   = new int[M]();
+    // 1D temporary arrays allocated ONCE per thread (Strictly O(M) auxiliary space)
+    auto* prev       = new int[M]();
+    auto* curr       = new int[M]();
+    auto* comp       = new int[M]();
+    auto* new_top    = new int[M]();
+    auto* new_bottom = new int[M]();
 
-    if (start_row > 0) {
-        std::copy_n(matrix[start_row - 1], M, prev_row);
-    }
-    std::copy_n(matrix[start_row], M, curr_row);
+    if (start_row > 0) std::copy_n(matrix[start_row - 1], M, prev);
+    std::copy_n(matrix[start_row], M, curr);
 
+    // PHASE 1: COMPUTE all assigned rows
     for (int i = start_row; i < end_row; i++) {
-        const int* next_row = (i + 1 < N) ? matrix[i + 1] : nullptr;
-
-        std::span<const int> prev(prev_row, M);
-        std::span<const int> curr(curr_row, M);
-        std::span<const int> next(next_row, M);
+        const int* next = (i + 1 < N) ? matrix[i + 1] : nullptr;
 
         for (int j = 1; j < M - 1; j++) {
-            computed_row[j] = apply_kernel(prev, curr, next, j);
+            comp[j] = apply_kernel(prev, curr, next, j);
         }
-        computed_row[0]     = curr_row[0];
-        computed_row[M - 1] = curr_row[M - 1];
+        comp[0] = curr[0];
+        comp[M - 1] = curr[M - 1];
 
-        const bool is_top_boundary    = (i == start_row && id > 0);
-        const bool is_bottom_boundary = (i == end_row - 1 && id < P - 1);
-
-        if (is_top_boundary && is_bottom_boundary) {
-            std::copy_n(computed_row, M, new_top);
-        } else if (is_top_boundary) {
-            std::copy_n(computed_row, M, new_top);
-        } else if (is_bottom_boundary) {
-            std::copy_n(computed_row, M, new_bottom);
+        // Boundary rows are saved in buffers; interior rows written directly
+        if (i == start_row && id > 0) {
+            std::copy_n(comp, M, new_top);
+        } else if (i == end_row - 1 && id < P - 1) {
+            std::copy_n(comp, M, new_bottom);
         } else {
-            std::copy_n(computed_row, M, matrix[i]);
+            std::copy_n(comp, M, matrix[i]);
         }
 
         if (i + 1 < end_row) {
-            std::copy_n(curr_row, M, prev_row);
-            std::copy_n(next_row, M, curr_row);
+            std::copy_n(curr, M, prev);
+            std::copy_n(next, M, curr);
         }
     }
 
+    // PHASE 2: SYNCHRONIZE
     sync_barrier.arrive_and_wait();
 
-    const bool is_top_boundary    = (id > 0);
-    const bool is_bottom_boundary = (id < P - 1);
-
-    if (is_top_boundary && is_bottom_boundary && (end_row - start_row == 1)) {
+    // PHASE 3: WRITE BOUNDARY ROWS (safe after barrier)
+    if (id > 0) {
         std::copy_n(new_top, M, matrix[start_row]);
-    } else {
-        if (is_top_boundary) {
-            std::copy_n(new_top, M, matrix[start_row]);
-        }
-        if (is_bottom_boundary) {
-            std::copy_n(new_bottom, M, matrix[end_row - 1]);
-        }
+    }
+    if (id < P - 1 && (end_row - 1 != start_row || id == 0)) {
+        std::copy_n(new_bottom, M, matrix[end_row - 1]);
     }
 
-    delete[] prev_row;
-    delete[] curr_row;
-    delete[] computed_row;
+    delete[] prev;
+    delete[] curr;
+    delete[] comp;
     delete[] new_top;
     delete[] new_bottom;
 }
@@ -221,7 +178,7 @@ void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& 
 // Parallel in-place convolution coordinator
 void parallel_convolution(int N, int M, int** matrix, int P) {
     if (N < 3 || M < 3) return;
-    const int activeP = std::min(P, N - 2);
+    int activeP = std::min(P, N - 2);
     if (activeP <= 1) {
         sequential_convolution(N, M, matrix);
         return;
@@ -230,18 +187,18 @@ void parallel_convolution(int N, int M, int** matrix, int P) {
     std::barrier sync_barrier(activeP);
     std::vector<std::jthread> threads;
     threads.reserve(activeP);
-
     for (int i = 0; i < activeP; i++) {
         threads.emplace_back(parallel_worker, i, activeP, N, M, matrix, std::ref(sync_barrier));
     }
+    // std::jthread auto-joins upon destruction
 }
 
-// Measure execution time in milliseconds using high-resolution clock
+// Measure execution time in milliseconds
 template <typename Func>
-auto measure_ms(Func&& fn) -> double {
-    const auto t0 = std::chrono::high_resolution_clock::now();
+double measure_ms(Func&& fn) {
+    auto t0 = std::chrono::high_resolution_clock::now();
     fn();
-    const auto t1 = std::chrono::high_resolution_clock::now();
+    auto t1 = std::chrono::high_resolution_clock::now();
     return std::chrono::duration<double, std::milli>(t1 - t0).count();
 }
 
@@ -254,21 +211,14 @@ int main(int argc, char** argv) {
     int P = 4;
     std::string filename = "date.txt";
 
-    // Flexible command-line parsing:
-    // Syntax 1: ./main <threads> [date.txt]
-    // Syntax 2: ./main <mode> <threads> [date.txt]
-    if (argc >= 2) {
-        std::string arg1 = argv[1];
-        if (std::isdigit(arg1[0])) {
-            P = std::stoi(arg1);
-            mode = (P == 1) ? "sequential" : "parallel";
-            if (argc >= 3) filename = argv[2];
-        } else {
-            mode = arg1;
-            if (argc >= 3) P = std::stoi(argv[2]);
-            if (argc >= 4) filename = argv[3];
-        }
+    // Clean, flexible argument parsing
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (std::isdigit(arg[0])) P = std::stoi(arg);
+        else if (arg == "sequential" || arg == "parallel" || arg == "all" || arg == "verify") mode = arg;
+        else if (arg.ends_with(".txt")) filename = arg;
     }
+    if (P == 1 && mode != "all") mode = "sequential";
 
     int N = 0, M = 0;
     auto** matrix = read_matrix(filename, N, M);
@@ -282,20 +232,20 @@ int main(int argc, char** argv) {
         std::cout << std::format("Matrix: {} x {} | Kernel: 3 x 3 | Threads: {} (In-Place O(M) Aux Space)\n", N, M, P);
         std::cout << "--------------------------------------------------\n";
 
-        // 1. Run Sequential
-        const double msSeq = measure_ms([&]() { sequential_convolution(N, M, matrix); });
+        // 1. Sequential run
+        double msSeq = measure_ms([&]() { sequential_convolution(N, M, matrix); });
         std::cout << std::format("[Sequential]          Time: {:.4f} ms\n", msSeq);
         write_matrix("output_seq.txt", matrix, N, M);
         write_matrix("output.txt", matrix, N, M);
         free_matrix(matrix, N);
 
-        // 2. Re-read original matrix and run Parallel (Variant 2B)
+        // 2. Parallel run
         matrix = read_matrix(filename, N, M);
-        const double msPar = measure_ms([&]() { parallel_convolution(N, M, matrix, P); });
+        double msPar = measure_ms([&]() { parallel_convolution(N, M, matrix, P); });
         write_matrix("output.txt", matrix, N, M);
 
-        const bool match = verify_files_equal("output_seq.txt", "output.txt");
-        const double speedup = (msPar > 0) ? (msSeq / msPar) : 1.0;
+        bool match = verify_files_equal("output_seq.txt", "output.txt");
+        double speedup = (msPar > 0) ? (msSeq / msPar) : 1.0;
         std::cout << std::format("[Parallel (Barrier)]  Time: {:.4f} ms | Match: {} | Speedup: {:.2f}x\n",
                                  msPar, match ? "true" : "false", speedup);
         std::cout << "--------------------------------------------------\n";
@@ -305,8 +255,8 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // MODE: Single execution (Used by automated benchmark script run_benchmark.ps1)
-    const double duration = measure_ms([&]() {
+    // MODE: Single execution (Used by automated benchmark script)
+    double duration = measure_ms([&]() {
         if (mode == "sequential" || P == 1) {
             sequential_convolution(N, M, matrix);
         } else {
@@ -315,28 +265,18 @@ int main(int argc, char** argv) {
     });
 
     write_matrix("output.txt", matrix, N, M);
-    if (mode == "sequential" || P == 1) {
-        write_matrix("output_seq.txt", matrix, N, M);
-    }
+    if (mode == "sequential" || P == 1) write_matrix("output_seq.txt", matrix, N, M);
 
-    // If sequential baseline exists, verify correctness on-the-fly
+    // Verify against output_seq.txt if present
     std::string seq_file = "output_seq.txt";
-    if (!std::ifstream(seq_file).good()) {
-        if (std::ifstream("../" + seq_file).good()) seq_file = "../" + seq_file;
-        else if (std::ifstream("../../" + seq_file).good()) seq_file = "../../" + seq_file;
-    }
-    if (std::ifstream fseq(seq_file); fseq.good()) {
-        fseq.close();
-        if (!verify_files_equal(seq_file, "output.txt")) {
-            std::cerr << "CORRECTNESS ERROR: Result does not match output_seq.txt!\n";
-            free_matrix(matrix, N);
-            return 1;
-        }
+    if (!std::ifstream(seq_file).good() && std::ifstream("../" + seq_file).good()) seq_file = "../" + seq_file;
+    if (std::ifstream(seq_file).good() && !verify_files_equal(seq_file, "output.txt")) {
+        std::cerr << "CORRECTNESS ERROR: Result does not match output_seq.txt!\n";
+        free_matrix(matrix, N);
+        return 1;
     }
 
-    // Output pure execution time in ms (for automated script parsing)
     std::cout << std::format("{:.4f}\n", duration);
-
     free_matrix(matrix, N);
     return 0;
 }
