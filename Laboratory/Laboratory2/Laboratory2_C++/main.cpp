@@ -102,50 +102,47 @@ constexpr auto apply_kernel(std::span<const int> prev,
 }
 
 // --- SEQUENTIAL IN-PLACE CONVOLUTION (O(M) AUXILIARY SPACE) ---
-// Processes rows top-to-bottom, keeping only prev_row and curr_row as 1D buffers.
-// Each computed row replaces the original row in-place.
+// Processes rows top-to-bottom with 3 reusable 1D buffers allocated once.
+// Zero dynamic allocations inside the loop.
 void sequential_convolution(int N, int M, int** matrix) {
     if (N < 3 || M < 3) return;
 
-    auto* prev_row = new int[M];
-    auto* curr_row = new int[M];
+    auto* prev_row     = new int[M];
+    auto* curr_row     = new int[M];
+    auto* computed_row = new int[M];
 
     std::copy_n(matrix[0], M, prev_row);
     std::copy_n(matrix[1], M, curr_row);
 
     for (int i = 1; i < N - 1; i++) {
+        const int* next_row = matrix[i + 1];
+
         std::span<const int> prev(prev_row, M);
         std::span<const int> curr(curr_row, M);
-        std::span<const int> next(matrix[i + 1], M);
+        std::span<const int> next(next_row, M);
 
-        auto* computed_row = new int[M];
         for (int j = 1; j < M - 1; j++) {
             computed_row[j] = apply_kernel(prev, curr, next, j);
         }
-        // Border pixels are preserved (not filtered)
-        computed_row[0] = curr_row[0];
+        computed_row[0]     = curr_row[0];
         computed_row[M - 1] = curr_row[M - 1];
 
-        // Replace row in-place
-        delete[] matrix[i];
-        matrix[i] = computed_row;
+        // Shift buffers forward before writing to matrix[i]
+        std::copy_n(curr_row, M, prev_row);
+        std::copy_n(next_row, M, curr_row);
 
-        // Shift buffers forward
-        if (i > 1) delete[] prev_row;
-        prev_row = curr_row;
-        curr_row = new int[M];
-        std::copy_n(matrix[i + 1], M, curr_row);
+        // Replace row in-place
+        std::copy_n(computed_row, M, matrix[i]);
     }
+
     delete[] prev_row;
     delete[] curr_row;
+    delete[] computed_row;
 }
 
-// --- PARALLEL WORKER (VARIANT 2B - BARRIER + DELAYED BOUNDARY WRITE) ---
 // Each thread computes its assigned rows using O(M) auxiliary space.
-// Boundary rows (shared with adjacent threads) are buffered and written only
-// after all threads synchronize at the barrier, preventing data races.
+// 1D buffers are allocated ONCE per thread (zero allocations inside loop).
 void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& sync_barrier) {
-    // Compute row range for this thread (horizontal line-based decomposition)
     const int inner_rows = N - 2;
     const int start_row  = 1 + id * inner_rows / P;
     const int end_row    = (id == P - 1) ? N - 1 : 1 + (id + 1) * inner_rows / P;
@@ -155,11 +152,12 @@ void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& 
         return;
     }
 
-    // Allocate 1D temporary arrays (Strictly O(M) auxiliary space per thread)
-    auto* prev_row   = new int[M]();
-    auto* curr_row   = new int[M]();
-    auto* new_top    = new int[M]();
-    auto* new_bottom = new int[M]();
+    // Allocate 1D temporary arrays ONCE per thread (Strictly O(M) space)
+    auto* prev_row     = new int[M]();
+    auto* curr_row     = new int[M]();
+    auto* computed_row = new int[M]();
+    auto* new_top      = new int[M]();
+    auto* new_bottom   = new int[M]();
 
     if (start_row > 0) {
         std::copy_n(matrix[start_row - 1], M, prev_row);
@@ -168,13 +166,8 @@ void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& 
 
     // PHASE 1: COMPUTE all rows in this thread's range
     for (int i = start_row; i < end_row; i++) {
-        auto* next_row = new int[M]();
-        if (i + 1 < N) {
-            std::copy_n(matrix[i + 1], M, next_row);
-        }
+        const int* next_row = (i + 1 < N) ? matrix[i + 1] : nullptr;
 
-        // Apply convolution kernel to interior pixels
-        auto* computed_row = new int[M]();
         std::span<const int> prev(prev_row, M);
         std::span<const int> curr(curr_row, M);
         std::span<const int> next(next_row, M);
@@ -182,40 +175,32 @@ void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& 
         for (int j = 1; j < M - 1; j++) {
             computed_row[j] = apply_kernel(prev, curr, next, j);
         }
-        computed_row[0] = curr_row[0];
+        computed_row[0]     = curr_row[0];
         computed_row[M - 1] = curr_row[M - 1];
 
-        // Determine if this row is at the boundary between two threads
         const bool is_top_boundary    = (i == start_row && id > 0);
         const bool is_bottom_boundary = (i == end_row - 1 && id < P - 1);
 
         if (is_top_boundary && is_bottom_boundary) {
-            // Single row belongs to both boundaries - save to top buffer
             std::copy_n(computed_row, M, new_top);
-            delete[] computed_row;
         } else if (is_top_boundary) {
             std::copy_n(computed_row, M, new_top);
-            delete[] computed_row;
         } else if (is_bottom_boundary) {
             std::copy_n(computed_row, M, new_bottom);
-            delete[] computed_row;
         } else {
-            // Interior row: write directly to matrix (safe, no adjacent thread reads this)
             std::copy_n(computed_row, M, matrix[i]);
-            delete[] computed_row;
         }
 
-        delete[] prev_row;
-        prev_row = curr_row;
-        curr_row = next_row;
+        if (i + 1 < end_row) {
+            std::copy_n(curr_row, M, prev_row);
+            std::copy_n(next_row, M, curr_row);
+        }
     }
-    delete[] prev_row;
-    delete[] curr_row;
 
-    // PHASE 2: SYNCHRONIZATION BARRIER - wait for all threads to finish computing
+    // PHASE 2: SYNCHRONIZATION BARRIER
     sync_barrier.arrive_and_wait();
 
-    // PHASE 3: WRITE BOUNDARY ROWS - safe now since all threads have read their data
+    // PHASE 3: WRITE BOUNDARY ROWS
     const bool is_top_boundary    = (id > 0);
     const bool is_bottom_boundary = (id < P - 1);
 
@@ -230,6 +215,9 @@ void parallel_worker(int id, int P, int N, int M, int** matrix, std::barrier<>& 
         }
     }
 
+    delete[] prev_row;
+    delete[] curr_row;
+    delete[] computed_row;
     delete[] new_top;
     delete[] new_bottom;
 }

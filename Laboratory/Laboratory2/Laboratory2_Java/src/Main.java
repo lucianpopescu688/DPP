@@ -134,7 +134,7 @@ public class Main {
         }
     }
 
-    // --- PARALLEL WORKER (VARIANT 2B - BARRIER + DELAYED BOUNDARY WRITE) ---
+    // --- PARALLEL WORKER
     // Each thread computes its assigned rows using O(M) auxiliary space.
     // Boundary rows are buffered and written only after barrier synchronization.
     static class ParallelWorker implements Runnable {
@@ -159,25 +159,24 @@ public class Main {
                 return;
             }
 
-            // Strictly O(M) auxiliary space per thread
-            int[] prevRow   = new int[M];
-            int[] currRow   = new int[M];
-            int[] newTop    = new int[M];
-            int[] newBottom = new int[M];
+            // Strictly O(M) auxiliary space per thread - allocated ONCE
+            int[] prevRow     = new int[M];
+            int[] currRow     = new int[M];
+            int[] computedRow = new int[M];
+            int[] newTop      = new int[M];
+            int[] newBottom   = new int[M];
 
             if (startRow > 0) System.arraycopy(matrix[startRow - 1], 0, prevRow, 0, M);
             System.arraycopy(matrix[startRow], 0, currRow, 0, M);
 
             // PHASE 1: COMPUTE all rows in this thread's range
             for (int i = startRow; i < endRow; i++) {
-                int[] nextRow = new int[M];
-                if (i + 1 < N) System.arraycopy(matrix[i + 1], 0, nextRow, 0, M);
+                int[] nextRow = (i + 1 < N) ? matrix[i + 1] : null;
 
-                int[] computedRow = new int[M];
                 for (int j = 1; j < M - 1; j++) {
                     computedRow[j] = applyKernel(prevRow, currRow, nextRow, j);
                 }
-                computedRow[0] = currRow[0];
+                computedRow[0]     = currRow[0];
                 computedRow[M - 1] = currRow[M - 1];
 
                 // Determine boundary status
@@ -192,17 +191,17 @@ public class Main {
                     System.arraycopy(computedRow, 0, newBottom, 0, M);
                 } else {
                     // Interior row: write directly (safe - no adjacent thread reads this)
-                    matrix[i] = computedRow;
+                    System.arraycopy(computedRow, 0, matrix[i], 0, M);
                 }
 
-                prevRow = currRow;
-                currRow = nextRow;
+                if (i + 1 < endRow) {
+                    System.arraycopy(currRow, 0, prevRow, 0, M);
+                    System.arraycopy(nextRow, 0, currRow, 0, M);
+                }
             }
 
-            // PHASE 2: SYNCHRONIZATION BARRIER
             try { barrier.await(); } catch (Exception e) { e.printStackTrace(); }
 
-            // PHASE 3: WRITE BOUNDARY ROWS (safe after barrier)
             boolean isTopBoundary    = (id > 0);
             boolean isBottomBoundary = (id < P - 1);
 

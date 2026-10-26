@@ -67,14 +67,22 @@ function Run-TestCase($name, $nVal, $mVal, $kVal, [int[]]$threadList) {
     Write-Host "--- [Parallel In-Place (Barrier Sync across all p)] ---" -ForegroundColor Yellow
     foreach ($p in $threadList) {
         $jTime = Get-AvgTime "Java 25 (p=$p)" { cmd /c "java -Xmx8g -cp `"$javaDir\bin`" Main parallel $p `"$PWD\date.txt`"" }
-        $jSpd  = if ($jTime -gt 0) { [math]::Round($jSeq / $jTime, 2) } else { 1.00 }
+        $jRatio = if ($jTime -gt 0) { $jSeq / $jTime } else { 1.0 }
+        $jSpd = [math]::Round($jRatio, 2)
+        $jSpdDisplay = if ($jRatio -lt 0.01) { "{0:N4}x" -f $jRatio } else { "{0:N2}x" -f $jRatio }
         Add-Content $csvJava "$($nVal)x$($mVal),$kVal,Parallel_Barrier,$p,$([math]::Round($jTime, 4)),$jSpd"
 
         $cTime = Get-AvgTime "C++26   (p=$p)" { cmd /c "`"$cppDir\Lab2InPlace.exe`" parallel $p `"$PWD\date.txt`"" }
-        $cSpd  = if ($cTime -gt 0) { [math]::Round($cSeq / $cTime, 2) } else { 1.00 }
+        $cRatio = if ($cTime -gt 0) { $cSeq / $cTime } else { 1.0 }
+        $cSpd = [math]::Round($cRatio, 2)
+        $cSpdDisplay = if ($cRatio -lt 0.01) { "{0:N4}x" -f $cRatio } else { "{0:N2}x" -f $cRatio }
         Add-Content $csvCpp "$($nVal)x$($mVal),$kVal,Parallel_Barrier,$p,$([math]::Round($cTime, 4)),$cSpd"
 
-        Write-Host "  >> Speedup vs Sequential (p=$p): Java = $($jSpd)x | C++ = $($cSpd)x`n" -ForegroundColor Cyan
+        $note = ""
+        if ($cRatio -lt 1.0 -and $nVal -le 10) {
+            $note = " (Note: on micro matrices, thread creation overhead ~1-2ms exceeds computation ~0.01ms)"
+        }
+        Write-Host "  >> Speedup (p=$p): Java = $jSpdDisplay | C++ = $cSpdDisplay$note`n" -ForegroundColor Cyan
     }
 
     if ($nVal -le 10 -and $mVal -le 10) {
