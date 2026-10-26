@@ -229,12 +229,12 @@ int main(int argc, char** argv) {
 
     // MODE: all / verify (For live demonstration to the lab assistant)
     if (mode == "all" || mode == "verify") {
-        std::cout << std::format("Matrix: {} x {} | Kernel: 3 x 3 | Threads: {} (In-Place O(M) Aux Space)\n", N, M, P);
-        std::cout << "--------------------------------------------------\n";
+        std::cout << "Matrix F: " << N << " x " << M << " | Kernel C: 3 x 3 | Threads p = " << P << "\n"
+                  << "--------------------------------------------------\n";
 
         // 1. Sequential run
         double msSeq = measure_ms([&]() { sequential_convolution(N, M, matrix); });
-        std::cout << std::format("[Sequential]          Time: {:.4f} ms\n", msSeq);
+        std::cout << std::format("[Sequential] Execution Time: {:.4f} ms\n", msSeq);
         write_matrix("output_seq.txt", matrix, N, M);
         write_matrix("output.txt", matrix, N, M);
         free_matrix(matrix, N);
@@ -246,10 +246,10 @@ int main(int argc, char** argv) {
 
         bool match = verify_files_equal("output_seq.txt", "output.txt");
         double speedup = (msPar > 0) ? (msSeq / msPar) : 1.0;
-        std::cout << std::format("[Parallel (Barrier)]  Time: {:.4f} ms | Match: {} | Speedup: {:.2f}x\n",
-                                 msPar, match ? "true" : "false", speedup);
-        std::cout << "--------------------------------------------------\n";
-        std::cout << "Output saved to output.txt\n";
+        std::cout << std::format("[Parallel]   Execution Time: {:.4f} ms | Match: {} | Speedup: {:.2f}x\n",
+                                 msPar, match ? "true" : "false", speedup)
+                  << "--------------------------------------------------\n"
+                  << "Output matrix saved to output.txt\n";
 
         free_matrix(matrix, N);
         return 0;

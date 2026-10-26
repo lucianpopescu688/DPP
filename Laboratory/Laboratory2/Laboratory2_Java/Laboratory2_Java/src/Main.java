@@ -224,14 +224,14 @@ public class Main {
 
         // MODE: all / verify (For live demonstration to the lab assistant)
         if (mode.equals("all") || mode.equals("verify")) {
-            System.out.printf("Matrix: %d x %d | Kernel: 3 x 3 | Threads: %d (In-Place O(M) Aux Space)%n", N, M, P);
+            System.out.printf("Matrix F: %d x %d | Kernel C: 3 x 3 | Threads p = %d%n", N, M, P);
             System.out.println("--------------------------------------------------");
 
             // 1. Sequential run
             long t0 = System.nanoTime();
             sequentialConvolution(N, M, matrix);
             double msSeq = (System.nanoTime() - t0) / 1e6;
-            System.out.printf("[Sequential]          Time: %.4f ms%n", msSeq);
+            System.out.printf(Locale.US, "[Sequential] Execution Time: %.4f ms%n", msSeq);
             writeMatrix("output_seq.txt", matrix);
             writeMatrix("output.txt", matrix);
 
@@ -244,9 +244,9 @@ public class Main {
 
             boolean match = verifyFilesEqual("output_seq.txt", "output.txt");
             double speedup = (msPar > 0) ? (msSeq / msPar) : 1.0;
-            System.out.printf("[Parallel (Barrier)]  Time: %.4f ms | Match: %b | Speedup: %.2fx%n", msPar, match, speedup);
+            System.out.printf(Locale.US, "[Parallel]   Execution Time: %.4f ms | Match: %b | Speedup: %.2fx%n", msPar, match, speedup);
             System.out.println("--------------------------------------------------");
-            System.out.println("Output saved to output.txt");
+            System.out.println("Output matrix saved to output.txt");
             return;
         }
 
