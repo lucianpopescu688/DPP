@@ -13,10 +13,10 @@ $csvCpp  = "$PWD\results_cpp_lab2.csv"
 
 # 1. Compile Java & C++
 New-Item -ItemType Directory -Path "$javaDir\bin" -Force | Out-Null
-Write-Host "Compiling Java and C++20..."
+Write-Host "Compiling Java (Java 25) and C++ (C++26)..."
 cmd /c "javac -d `"$javaDir\bin`" `"$javaDir\src\Main.java`""
 $gpp = if (Test-Path "$mingw\g++.exe") { "$mingw\g++.exe" } else { "g++" }
-& $gpp -O3 -std=c++20 "$cppDir\main.cpp" -o "$cppDir\Lab2InPlace.exe"
+& $gpp -O3 -std=c++2c -pthread "$cppDir\main.cpp" -o "$cppDir\Lab2InPlace.exe"
 if ($LASTEXITCODE -ne 0) { Write-Error "Compilation failed!"; exit 1 }
 
 Set-Content $csvJava "Matrix Dimensions,Kernel,Algorithm,Threads,Average Time (ms),Speedup"

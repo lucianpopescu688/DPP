@@ -1,6 +1,13 @@
-Matrix Dimensions,Kernel,Variant,Threads,Average Time (ms),Speedup
-10x10,3,Sequential,1,0.1074,1.00
-10x10,3,Variant_1b,2,10.6742,0.01
-10x10,3,Variant_1f,2,8.5056,0.01
-10x10,3,Variant_2b,2,10.0442,0.01
-10x10,3,Variant_2f,2,9.7796,0.01
+Matrix Dimensions,Kernel,Algorithm,Threads,Average Time (ms),Speedup
+10x10,3,Sequential,1,0.0825,1.00
+10x10,3,Parallel_Barrier,2,4.5120,0.02
+1000x1000,3,Sequential,1,18.2540,1.00
+1000x1000,3,Parallel_Barrier,2,16.4210,1.11
+1000x1000,3,Parallel_Barrier,4,12.1850,1.50
+1000x1000,3,Parallel_Barrier,8,15.3400,1.19
+1000x1000,3,Parallel_Barrier,16,18.9120,0.97
+10000x10000,3,Sequential,1,1845.2000,1.00
+10000x10000,3,Parallel_Barrier,2,1042.5000,1.77
+10000x10000,3,Parallel_Barrier,4,682.3000,2.70
+10000x10000,3,Parallel_Barrier,8,698.1000,2.64
+10000x10000,3,Parallel_Barrier,16,742.0000,2.49

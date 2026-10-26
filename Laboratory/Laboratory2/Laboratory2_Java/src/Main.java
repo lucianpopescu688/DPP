@@ -1,3 +1,8 @@
+// =============================================================================
+// DPP Laboratory 2 - In-Place Convolution with Barrier Synchronization
+// Language: Java 25 | Compiled with: javac --release 25
+// =============================================================================
+
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.CyclicBarrier;
@@ -5,83 +10,98 @@ import java.util.concurrent.CyclicBarrier;
 public class Main {
 
     // --- CONSTANTS ---
+    // Fixed 3x3 sharpening kernel
     static final int[][] KERNEL = {
         { 0, -1,  0},
         {-1,  5, -1},
         { 0, -1,  0}
     };
 
-    // --- FILE I/O & UTILS ---
-    static int[][] readMatrix(String filename) {
-        File f = new File(filename);
-        if (!f.exists()) {
-            File p = new File("..", filename);
-            if (p.exists()) f = p;
-        }
-        try (BufferedReader br = new BufferedReader(new FileReader(f))) {
-            String line = br.readLine();
-            while (line != null && line.trim().isEmpty()) line = br.readLine();
-            if (line == null) return null;
-
-            StringTokenizer st = new StringTokenizer(line);
-            int n = Integer.parseInt(st.nextToken());
-            int m = Integer.parseInt(st.nextToken());
-
-            int[][] matrix = new int[n][m];
-            for (int i = 0; i < n; i++) {
-                while (!st.hasMoreTokens()) {
-                    line = br.readLine();
-                    if (line == null) break;
-                    st = new StringTokenizer(line);
-                }
-                for (int j = 0; j < m; j++) {
-                    matrix[i][j] = Integer.parseInt(st.nextToken());
-                }
+    // --- RECORD: Encapsulates matrix data and dimensions ---
+    record MatrixData(int[][] data, int rows, int cols) {
+        static MatrixData fromFile(String filename) {
+            var f = new File(filename);
+            if (!f.exists()) {
+                var parent = new File("..", filename);
+                if (parent.exists()) f = parent;
             }
-            return matrix;
-        } catch (Exception e) {
-            return null;
-        }
-    }
+            try (var br = new BufferedReader(new FileReader(f))) {
+                String line = br.readLine();
+                while (line != null && line.isBlank()) line = br.readLine();
+                if (line == null) return null;
 
-    static void writeMatrix(String filename, int[][] matrix) {
-        try (BufferedWriter bw = new BufferedWriter(new FileWriter(filename))) {
-            int n = matrix.length, m = matrix[0].length;
-            bw.write(n + " " + m + "\n");
-            for (int i = 0; i < n; i++) {
-                StringBuilder sb = new StringBuilder(m * 6);
-                for (int j = 0; j < m; j++) {
-                    sb.append(matrix[i][j]).append(j + 1 < m ? " " : "");
+                var st = new StringTokenizer(line);
+                int n = Integer.parseInt(st.nextToken());
+                int m = Integer.parseInt(st.nextToken());
+
+                int[][] matrix = new int[n][m];
+                for (int i = 0; i < n; i++) {
+                    while (!st.hasMoreTokens()) {
+                        line = br.readLine();
+                        if (line == null) break;
+                        st = new StringTokenizer(line);
+                    }
+                    for (int j = 0; j < m; j++) {
+                        matrix[i][j] = Integer.parseInt(st.nextToken());
+                    }
                 }
-                bw.write(sb.toString());
+                return new MatrixData(matrix, n, m);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+
+        void writeToFile(String filename) {
+            try (var bw = new BufferedWriter(new FileWriter(filename))) {
+                bw.write(rows + " " + cols);
                 bw.newLine();
+                for (int i = 0; i < rows; i++) {
+                    var sb = new StringBuilder(cols * 6);
+                    for (int j = 0; j < cols; j++) {
+                        sb.append(data[i][j]);
+                        if (j + 1 < cols) sb.append(' ');
+                    }
+                    bw.write(sb.toString());
+                    bw.newLine();
+                }
+            } catch (Exception e) {
+                System.err.println("Error writing " + filename);
             }
-        } catch (Exception e) {
-            System.err.println("Error writing " + filename);
         }
     }
 
+    // --- FILE VERIFICATION ---
+    // Compares two output files value-by-value without allocating a second matrix
     static boolean verifyFilesEqual(String file1, String file2) {
-        File f1 = new File(file1);
-        File f2 = new File(file2);
+        var f1 = new File(file1);
+        var f2 = new File(file2);
         if (!f1.exists()) f1 = new File("..", file1);
         if (!f2.exists()) f2 = new File("..", file2);
         if (!f1.exists() || !f2.exists()) return false;
 
-        try (BufferedReader br1 = new BufferedReader(new FileReader(f1));
-             BufferedReader br2 = new BufferedReader(new FileReader(f2))) {
+        try (var br1 = new BufferedReader(new FileReader(f1));
+             var br2 = new BufferedReader(new FileReader(f2))) {
             String l1, l2;
             while ((l1 = br1.readLine()) != null) {
                 l2 = br2.readLine();
-                if (l2 == null || !l1.trim().equals(l2.trim())) return false;
+                if (l2 == null || !l1.strip().equals(l2.strip())) return false;
             }
             return br2.readLine() == null;
-        } catch (Exception e) {
+        } catch (Exception ignored) {
             return false;
         }
     }
 
+    // --- CONVOLUTION HELPER ---
+    // Applies the 3x3 kernel to a single interior pixel
+    static int applyKernel(int[] prev, int[] curr, int[] next, int j) {
+        return prev[j - 1] * KERNEL[0][0] + prev[j] * KERNEL[0][1] + prev[j + 1] * KERNEL[0][2] +
+               curr[j - 1] * KERNEL[1][0] + curr[j] * KERNEL[1][1] + curr[j + 1] * KERNEL[1][2] +
+               next[j - 1] * KERNEL[2][0] + next[j] * KERNEL[2][1] + next[j + 1] * KERNEL[2][2];
+    }
+
     // --- SEQUENTIAL CONVOLUTION (O(M) AUXILIARY SPACE) ---
+    // Processes rows top-to-bottom with only prev_row and curr_row as 1D buffers
     static void sequentialConvolution(int N, int M, int[][] matrix) {
         if (N < 3 || M < 3) return;
 
@@ -93,43 +113,43 @@ public class Main {
             int[] computedRow = new int[M];
 
             for (int j = 1; j < M - 1; j++) {
-                computedRow[j] = 
-                    prevRow[j - 1] * KERNEL[0][0] + prevRow[j] * KERNEL[0][1] + prevRow[j + 1] * KERNEL[0][2] +
-                    currRow[j - 1] * KERNEL[1][0] + currRow[j] * KERNEL[1][1] + currRow[j + 1] * KERNEL[1][2] +
-                    nextRow[j - 1] * KERNEL[2][0] + nextRow[j] * KERNEL[2][1] + nextRow[j + 1] * KERNEL[2][2];
+                computedRow[j] = applyKernel(prevRow, currRow, nextRow, j);
             }
+            // Border pixels preserved
             computedRow[0] = currRow[0];
             computedRow[M - 1] = currRow[M - 1];
 
-            // In-place row assignment
+            // In-place row replacement
             matrix[i] = computedRow;
 
-            // Shift forward
+            // Shift buffers forward
             prevRow = currRow;
             currRow = Arrays.copyOf(nextRow, M);
         }
     }
 
     // --- PARALLEL WORKER (VARIANT 2B - BARRIER + DELAYED BOUNDARY WRITE) ---
+    // Each thread computes its assigned rows using O(M) auxiliary space.
+    // Boundary rows are buffered and written only after barrier synchronization.
     static class ParallelWorker implements Runnable {
-        int id, P, N, M;
-        int[][] matrix;
-        CyclicBarrier barrier;
+        private final int id, P, N, M;
+        private final int[][] matrix;
+        private final CyclicBarrier barrier;
 
-        public ParallelWorker(int id, int P, int N, int M, int[][] matrix, CyclicBarrier barrier) {
+        ParallelWorker(int id, int P, int N, int M, int[][] matrix, CyclicBarrier barrier) {
             this.id = id; this.P = P; this.N = N; this.M = M;
             this.matrix = matrix; this.barrier = barrier;
         }
 
         @Override
         public void run() {
+            // Compute row range (horizontal line-based decomposition)
             int innerRows = N - 2;
             int startRow = 1 + id * innerRows / P;
-            int endRow   = 1 + (id + 1) * innerRows / P;
-            if (id == P - 1) endRow = N - 1;
+            int endRow   = (id == P - 1) ? N - 1 : 1 + (id + 1) * innerRows / P;
 
             if (startRow >= endRow) {
-                try { barrier.await(); } catch (Exception e) {}
+                try { barrier.await(); } catch (Exception ignored) {}
                 return;
             }
 
@@ -142,21 +162,19 @@ public class Main {
             if (startRow > 0) System.arraycopy(matrix[startRow - 1], 0, prevRow, 0, M);
             System.arraycopy(matrix[startRow], 0, currRow, 0, M);
 
-            // PHASE 1: COMPUTE
+            // PHASE 1: COMPUTE all rows in this thread's range
             for (int i = startRow; i < endRow; i++) {
                 int[] nextRow = new int[M];
                 if (i + 1 < N) System.arraycopy(matrix[i + 1], 0, nextRow, 0, M);
 
                 int[] computedRow = new int[M];
                 for (int j = 1; j < M - 1; j++) {
-                    computedRow[j] = 
-                        prevRow[j - 1] * KERNEL[0][0] + prevRow[j] * KERNEL[0][1] + prevRow[j + 1] * KERNEL[0][2] +
-                        currRow[j - 1] * KERNEL[1][0] + currRow[j] * KERNEL[1][1] + currRow[j + 1] * KERNEL[1][2] +
-                        nextRow[j - 1] * KERNEL[2][0] + nextRow[j] * KERNEL[2][1] + nextRow[j + 1] * KERNEL[2][2];
+                    computedRow[j] = applyKernel(prevRow, currRow, nextRow, j);
                 }
                 computedRow[0] = currRow[0];
                 computedRow[M - 1] = currRow[M - 1];
 
+                // Determine boundary status
                 boolean isTopBoundary    = (i == startRow && id > 0);
                 boolean isBottomBoundary = (i == endRow - 1 && id < P - 1);
 
@@ -167,7 +185,8 @@ public class Main {
                 } else if (isBottomBoundary) {
                     System.arraycopy(computedRow, 0, newBottom, 0, M);
                 } else {
-                    matrix[i] = computedRow; // Internal rows written directly
+                    // Interior row: write directly (safe - no adjacent thread reads this)
+                    matrix[i] = computedRow;
                 }
 
                 prevRow = currRow;
@@ -177,7 +196,7 @@ public class Main {
             // PHASE 2: SYNCHRONIZATION BARRIER
             try { barrier.await(); } catch (Exception e) { e.printStackTrace(); }
 
-            // PHASE 3: WRITE BOUNDARIES INTO MATRIX
+            // PHASE 3: WRITE BOUNDARY ROWS (safe after barrier)
             boolean isTopBoundary    = (id > 0);
             boolean isBottomBoundary = (id < P - 1);
 
@@ -199,14 +218,14 @@ public class Main {
             return;
         }
 
-        CyclicBarrier barrier = new CyclicBarrier(activeP);
-        Thread[] threads = new Thread[activeP];
+        var barrier = new CyclicBarrier(activeP);
+        var threads = new Thread[activeP];
         for (int i = 0; i < activeP; i++) {
             threads[i] = new Thread(new ParallelWorker(i, activeP, N, M, matrix, barrier));
             threads[i].start();
         }
         for (int i = 0; i < activeP; i++) {
-            try { threads[i].join(); } catch (InterruptedException e) {}
+            try { threads[i].join(); } catch (InterruptedException ignored) {}
         }
     }
 
@@ -231,12 +250,13 @@ public class Main {
             }
         }
 
-        int[][] matrix = readMatrix(filename);
-        if (matrix == null) {
+        var matrixData = MatrixData.fromFile(filename);
+        if (matrixData == null) {
             System.err.println("Error: Could not read " + filename);
             return;
         }
-        int N = matrix.length, M = matrix[0].length;
+        int[][] matrix = matrixData.data();
+        int N = matrixData.rows(), M = matrixData.cols();
 
         // MODE: all / verify (For live demonstration to the lab assistant)
         if (mode.equals("all") || mode.equals("verify")) {
@@ -248,15 +268,16 @@ public class Main {
             sequentialConvolution(N, M, matrix);
             double msSeq = (System.nanoTime() - t0) / 1e6;
             System.out.printf("[Sequential]          Time: %.4f ms%n", msSeq);
-            writeMatrix("output_seq.txt", matrix);
-            writeMatrix("output.txt", matrix);
+            new MatrixData(matrix, N, M).writeToFile("output_seq.txt");
+            new MatrixData(matrix, N, M).writeToFile("output.txt");
 
             // 2. Re-read original matrix and run Parallel
-            matrix = readMatrix(filename);
+            matrixData = MatrixData.fromFile(filename);
+            matrix = matrixData.data();
             t0 = System.nanoTime();
             parallelConvolution(N, M, matrix, P);
             double msPar = (System.nanoTime() - t0) / 1e6;
-            writeMatrix("output.txt", matrix);
+            new MatrixData(matrix, N, M).writeToFile("output.txt");
 
             boolean match = verifyFilesEqual("output_seq.txt", "output.txt");
             double speedup = (msPar > 0) ? (msSeq / msPar) : 1.0;
@@ -275,12 +296,13 @@ public class Main {
         }
         double durationMs = (System.nanoTime() - t0) / 1e6;
 
-        writeMatrix("output.txt", matrix);
+        var result = new MatrixData(matrix, N, M);
+        result.writeToFile("output.txt");
         if (mode.equals("sequential") || P == 1) {
-            writeMatrix("output_seq.txt", matrix);
+            result.writeToFile("output_seq.txt");
         }
 
-        File seqFile = new File("output_seq.txt");
+        var seqFile = new File("output_seq.txt");
         if (seqFile.exists()) {
             if (!verifyFilesEqual("output_seq.txt", "output.txt")) {
                 System.err.println("CORRECTNESS ERROR: Result does not match output_seq.txt!");

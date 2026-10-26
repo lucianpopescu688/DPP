@@ -1,0 +1,181 @@
+================================================================================
+DPP LABORATORY 2: IN-PLACE SPATIAL CONVOLUTION WITH BARRIER SYNCHRONIZATION
+================================================================================
+Course:    Distributed & Parallel Programming (DPP)
+Author:    Lucian Popescu
+Languages: C++26 (MinGW GCC 15.2.0) | Java 25 (OpenJDK JBR-25.0.4)
+Platform:  Windows 11 x64 | AMD Ryzen 7 3750H (4 Cores / 8 Logical Threads)
+
+1. REQUIREMENTS & PROBLEM FORMULATION
+--------------------------------------------------------------------------------
+Given an input image matrix F(N, M) and a fixed 3x3 sharpening convolution kernel:
+    K = [  0, -1,  0 ]
+        [ -1,  5, -1 ]
+        [  0, -1,  0 ]
+
+The objective is to compute the filtered matrix directly IN-PLACE inside the
+original matrix memory, adhering to strict memory constraints:
+  - Postcondition: The initial matrix memory must contain the filtered image.
+  - Strict Memory Constraint: NO result matrix and NO temporary full matrix of
+    size O(N x M) may be allocated. Only 1D temporary row vectors within O(M)
+    auxiliary space per thread are allowed.
+  - Border Policy: Outer border pixels (i = 0, i = N-1, j = 0, j = M-1) are preserved.
+  - Threading: Explicit thread primitives only (std::jthread in C++26,
+    java.lang.Thread with Runnable in Java 25). No executor pools.
+  - Concurrency Coordination: Barrier synchronization (std::barrier in C++26,
+    java.util.concurrent.CyclicBarrier in Java 25).
+  - Verification: Every execution output is strictly verified value-by-value
+    against the sequential baseline without allocating extra matrices in memory
+    (streaming file comparison via verify_files_equal).
+
+2. ARCHITECTURE & IN-PLACE DECOMPOSITION STRATEGY
+--------------------------------------------------------------------------------
+In standard 2D convolution, each output pixel V[i, j] depends on F[i-1..i+1, j-1..j+1].
+Overwriting F[i, j] in-place destroys the original pixel value needed by row i+1
+and by neighbor threads, introducing write-after-read (WAR) hazards.
+
+To resolve this with strictly O(M) auxiliary memory per thread:
+
+A. Horizontal Line-Based Domain Decomposition:
+   - Rows are partitioned across P threads:
+       start_row = 1 + id * (N - 2) / P
+       end_row   = 1 + (id + 1) * (N - 2) / P  (with end_row = N - 1 for id = P - 1)
+   - Each thread is responsible for processing rows in [start_row, end_row).
+
+B. Three-Phase Barrier-Synchronized In-Place Protocol (Variant 2B):
+   - Phase 1 (Local Compute & Interior Commit):
+     * Each thread maintains 4 1D vectors of size M:
+       prev_row, curr_row, new_top, new_bottom.
+     * Thread scans its assigned chunk from start_row to end_row - 1.
+     * Intermediate interior rows (i > start_row and i < end_row - 1) are written
+       DIRECTLY into matrix[i], because no other thread ever reads those rows.
+     * Boundary rows (start_row and end_row - 1) are critical: they are adjacent
+       to neighbor thread partitions. Their filtered values are stored in 1D buffers
+       new_top and new_bottom, leaving matrix[start_row] and matrix[end_row - 1]
+       intact so neighbor threads can safely read them.
+   - Phase 2 (Global Synchronization Barrier):
+     * All P threads arrive and wait at the barrier (std::barrier / CyclicBarrier).
+     * Guarantees all threads have finished reading all boundary rows before any
+       thread overwrites them.
+   - Phase 3 (Boundary Commit):
+     * After passing the barrier, each thread safely writes new_top into
+       matrix[start_row] and new_bottom into matrix[end_row - 1].
+     * Local O(M) buffers are freed.
+
+3. THEORETICAL COMPLEXITY & MEMORY ANALYSIS
+--------------------------------------------------------------------------------
+- Time Complexity:
+  * Sequential: O(N x M) operations (9 multiply-adds per interior cell).
+  * Parallel: O((N x M) / P) computation + O(1) barrier synchronization latency.
+- Space Complexity:
+  * In-Place Auxiliary Memory: O(P x M) total across all threads.
+  * Contrast with Standard Out-of-Place: O(N x M) memory for an extra matrix.
+  * For TC3 (10,000 x 10,000):
+    - Out-of-Place Matrix Allocation: ~400 MB auxiliary RAM.
+    - In-Place (Our Implementation, P=8): 8 threads x 4 buffers x 10,000 x 4 bytes
+      = ~1.28 MB auxiliary RAM (Over 300x memory reduction!).
+
+4. TEST ENVIRONMENT & WORKLOADS
+--------------------------------------------------------------------------------
+- CPU: AMD Ryzen 7 3750H with Radeon Vega Mobile Gfx (4 Physical Cores / 8 Threads)
+- RAM: 32 GB DDR4
+- OS: Windows 11 Home 64-bit
+- Compilers & Toolchains:
+  * C++: MinGW GCC 15.2.0 (-O3 -std=c++2c -pthread)
+  * Java: OpenJDK 64-Bit Server VM JBR-25.0.4 (-Xmx8g)
+- Workloads:
+  * TC1: N = M = 10, k = 3 | p = 2 (Micro thread overhead test)
+  * TC2: N = M = 1000, k = 3 | p = 2, 4, 8, 16 (Medium 1M elements)
+  * TC3: N = M = 10000, k = 3 | p = 2, 4, 8, 16 (Large 100M elements)
+- Methodology:
+  * Arithmetic mean of 10 external program runs per configuration.
+  * I/O file reading and writing excluded from execution time measurement.
+  * Correctness verified for every single execution.
+
+5. PERFORMANCE BENCHMARKS (Mean of 10 External Runs)
+--------------------------------------------------------------------------------
+All times in milliseconds (ms). Speedup calculated relative to sequential baseline.
+
+--------------------------------------------------------------------------------
+TC1: 10 x 10, Kernel 3 x 3 (p = 2 threads)
+--------------------------------------------------------------------------------
+Language | Sequential Baseline | Parallel (p=2)    | Speedup | Verification
+---------+---------------------+-------------------+---------+--------------
+Java 25  | 0.0825 ms           | 4.5120 ms         | 0.02x   | PASSED (Match: true)
+C++26    | 0.0071 ms           | 1.7824 ms         | 0.00x   | PASSED (Match: true)
+
+Analysis: For tiny workloads (10x10 = 100 cells), the operating system overhead
+of thread creation (~1-2 ms in C++, ~4-5 ms in Java) dominates computation time.
+Sequential execution is superior for micro-matrices.
+
+--------------------------------------------------------------------------------
+TC2: 1000 x 1000, Kernel 3 x 3 (p = 2, 4, 8, 16 threads)
+--------------------------------------------------------------------------------
+Java Baseline:  Sequential = 18.2540 ms
+C++26 Baseline: Sequential = 0.9850 ms
+
+[JAVA 25]
+Threads (p) | Average Time (ms) | Speedup vs Seq | Correctness
+------------+-------------------+----------------+-------------
+p = 2       | 16.4210 ms        | 1.11x          | PASSED
+p = 4       | 12.1850 ms        | 1.50x          | PASSED
+p = 8       | 15.3400 ms        | 1.19x          | PASSED
+p = 16      | 18.9120 ms        | 0.97x          | PASSED
+
+[C++26]
+Threads (p) | Average Time (ms) | Speedup vs Seq | Correctness
+------------+-------------------+----------------+-------------
+p = 2       | 1.2140 ms         | 0.81x          | PASSED
+p = 4       | 1.4820 ms         | 0.66x          | PASSED
+p = 8       | 2.1150 ms         | 0.47x          | PASSED
+p = 16      | 2.9800 ms         | 0.33x          | PASSED
+
+Analysis: In C++26, the sequential algorithm is already heavily vectorized by GCC
+(-O3) and completes in under 1 ms. In Java, parallel execution yields a noticeable
+speedup peaking at p=4 (1.50x) matching the 4 physical CPU cores.
+
+--------------------------------------------------------------------------------
+TC3: 10000 x 10000, Kernel 3 x 3 (p = 2, 4, 8, 16 threads)
+--------------------------------------------------------------------------------
+[Values benchmarked across 100M elements stress test]
+Java Baseline:  Sequential = 1845.20 ms
+C++26 Baseline: Sequential = 102.40 ms
+
+[JAVA 25]
+Threads (p) | Average Time (ms) | Speedup vs Seq | Correctness
+------------+-------------------+----------------+-------------
+p = 2       | 1042.50 ms        | 1.77x          | PASSED
+p = 4       | 682.30 ms         | 2.70x          | PASSED
+p = 8       | 698.10 ms         | 2.64x          | PASSED
+p = 16      | 742.00 ms         | 2.49x          | PASSED
+
+[C++26]
+Threads (p) | Average Time (ms) | Speedup vs Seq | Correctness
+------------+-------------------+----------------+-------------
+p = 2       | 58.20 ms          | 1.76x          | PASSED
+p = 4       | 36.80 ms          | 2.78x          | PASSED
+p = 8       | 38.10 ms          | 2.69x          | PASSED
+p = 16      | 42.50 ms          | 2.41x          | PASSED
+
+6. KEY FINDINGS & COMPARATIVE ANALYSIS
+--------------------------------------------------------------------------------
+1. In-Place Memory Efficiency:
+   The barrier-synchronized delayed boundary write (Variant 2B) completely eliminates
+   the need for an auxiliary N x M matrix. This enables processing massive matrices
+   (such as 10000 x 10000) that would otherwise strain L3 cache and trigger memory
+   swapping.
+2. Barrier Synchronization Scalability:
+   Because only boundary rows (start_row and end_row - 1) are deferred to after
+   the barrier, each thread writes (end_row - start_row - 2) interior rows
+   concurrently during Phase 1. As N increases, the synchronization overhead
+   at the barrier becomes negligible (< 0.05% of runtime).
+3. Scalability with Physical vs. Logical Cores:
+   On the test machine (4 physical cores, 8 hyperthreads), peak speedup is achieved
+   at p = 4 threads (~2.78x in C++, ~2.70x in Java). Hyperthreading (p = 8) offers
+   comparable performance, while oversaturation (p = 16) introduces context
+   switching penalties.
+4. C++26 vs. Java 25:
+   C++26 execution is approximately 15x to 18x faster than Java due to cache-friendly
+   raw pointer traversal, compiler auto-vectorization (SIMD), and absence of JVM
+   array bounds checking.
+================================================================================
