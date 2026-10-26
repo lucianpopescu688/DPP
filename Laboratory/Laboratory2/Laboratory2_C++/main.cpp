@@ -1,8 +1,3 @@
-// =============================================================================
-// DPP Laboratory 2 - In-Place Convolution with Barrier Synchronization
-// Language: C++26 | Compiled with: g++ -std=c++2c -O3 -pthread
-// =============================================================================
-
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -44,13 +39,14 @@ void free_matrix(int** matrix, int N) {
 
 // --- FILE I/O & VERIFICATION ---
 // Reads matrix dimensions and data from file (format: "N M\n <data>")
+// Searches current directory, parent directory, and grandparent directory
 auto read_matrix(const std::string& filename, int& N, int& M) -> int** {
     std::ifstream fin(filename);
-    if (!fin) {
-        // Try parent directory fallback (for scripts that run from subdirectory)
-        fin.open("../" + filename);
-        if (!fin) return nullptr;
-    }
+    if (!fin) fin.open("../" + filename);
+    if (!fin) fin.open("../../" + filename);
+    if (!fin) fin.open("../../../" + filename);
+    if (!fin) return nullptr;
+
     if (!(fin >> N >> M)) return nullptr;
     auto** matrix = allocate_matrix(N, M);
     for (int i = 0; i < N; i++) {
@@ -76,7 +72,14 @@ void write_matrix(const std::string& filename, int** matrix, int N, int M) {
 // Verifies two output files match value-by-value without allocating an extra matrix
 // (Complies with O(M) space constraint - no second matrix in memory)
 auto verify_files_equal(const std::string& file1, const std::string& file2) -> bool {
-    std::ifstream f1(file1), f2(file2);
+    std::ifstream f1(file1);
+    if (!f1.is_open()) f1.open("../" + file1);
+    if (!f1.is_open()) f1.open("../../" + file1);
+
+    std::ifstream f2(file2);
+    if (!f2.is_open()) f2.open("../" + file2);
+    if (!f2.is_open()) f2.open("../../" + file2);
+
     if (!f1.is_open() || !f2.is_open()) return false;
     int n1, m1, n2, m2;
     if (!(f1 >> n1 >> m1) || !(f2 >> n2 >> m2)) return false;
@@ -334,9 +337,14 @@ int main(int argc, char** argv) {
     }
 
     // If sequential baseline exists, verify correctness on-the-fly
-    if (std::ifstream fseq("output_seq.txt"); fseq.good()) {
+    std::string seq_file = "output_seq.txt";
+    if (!std::ifstream(seq_file).good()) {
+        if (std::ifstream("../" + seq_file).good()) seq_file = "../" + seq_file;
+        else if (std::ifstream("../../" + seq_file).good()) seq_file = "../../" + seq_file;
+    }
+    if (std::ifstream fseq(seq_file); fseq.good()) {
         fseq.close();
-        if (!verify_files_equal("output_seq.txt", "output.txt")) {
+        if (!verify_files_equal(seq_file, "output.txt")) {
             std::cerr << "CORRECTNESS ERROR: Result does not match output_seq.txt!\n";
             free_matrix(matrix, N);
             return 1;

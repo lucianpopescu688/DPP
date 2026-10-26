@@ -21,10 +21,10 @@ public class Main {
     record MatrixData(int[][] data, int rows, int cols) {
         static MatrixData fromFile(String filename) {
             var f = new File(filename);
-            if (!f.exists()) {
-                var parent = new File("..", filename);
-                if (parent.exists()) f = parent;
-            }
+            if (!f.exists()) f = new File("..", filename);
+            if (!f.exists()) f = new File("../..", filename);
+            if (!f.exists()) f = new File("../../..", filename);
+            if (!f.exists()) return null;
             try (var br = new BufferedReader(new FileReader(f))) {
                 String line = br.readLine();
                 while (line != null && line.isBlank()) line = br.readLine();
@@ -74,9 +74,15 @@ public class Main {
     // Compares two output files value-by-value without allocating a second matrix
     static boolean verifyFilesEqual(String file1, String file2) {
         var f1 = new File(file1);
-        var f2 = new File(file2);
         if (!f1.exists()) f1 = new File("..", file1);
+        if (!f1.exists()) f1 = new File("../..", file1);
+        if (!f1.exists()) f1 = new File("../../..", file1);
+
+        var f2 = new File(file2);
         if (!f2.exists()) f2 = new File("..", file2);
+        if (!f2.exists()) f2 = new File("../..", file2);
+        if (!f2.exists()) f2 = new File("../../..", file2);
+
         if (!f1.exists() || !f2.exists()) return false;
 
         try (var br1 = new BufferedReader(new FileReader(f1));

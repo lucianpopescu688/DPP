@@ -16,3 +16,4 @@ out/
 MatrixF.txt
 output.txt
 output_seq.txt
+*.iml
